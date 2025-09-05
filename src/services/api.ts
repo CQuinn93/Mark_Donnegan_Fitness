@@ -318,7 +318,7 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
         console.log('=== TRAINER VERIFICATION START ===');
         console.log('Verifying trainer code:', code);
         
-        const response = await supabaseApi.get(`/trainers?code=eq.${code}&is_active=eq.true`);
+        const response = await supabaseApi.get(`/profiles?access_code=eq.${code}&role=eq.trainer`);
         
         console.log('API Response:', {
           hasData: !!response.data,
@@ -380,7 +380,7 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
     async checkTempPassword(): Promise<{ hasTempPassword: boolean; error: string | null }> {
       try {
         const response = await authApi.get('/user');
-        if (response.data?.user_metadata?.is_temp_password) {
+        if (response.data?.user_metadata?.is_access_code) {
           return { hasTempPassword: true, error: null };
         }
         return { hasTempPassword: false, error: null };
@@ -392,6 +392,19 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
   }
 
 
+
+// Test function to check Supabase connection
+export const testSupabaseConnection = async (): Promise<{ success: boolean; error: string | null }> => {
+  try {
+    console.log('Testing Supabase connection...');
+    const response = await authApi.get('/settings');
+    console.log('Supabase connection test successful:', response.status);
+    return { success: true, error: null };
+  } catch (error: any) {
+    console.error('Supabase connection test failed:', error.response?.data || error.message);
+    return { success: false, error: error.response?.data?.message || error.message };
+  }
+};
 
 // User Services
 export const userService = {
@@ -417,106 +430,227 @@ export const userService = {
     }
   },
 
-  // Create new user (admin function)
+  // Create new user (admin function) - UPDATED VERSION
   async createUser(userData: {
     email: string;
     first_name: string;
-    role: 'member' | 'trainer';
-  }): Promise<{ user: any | null; temp_password?: string; trainer_code?: string; error: string | null }> {
+    role: 'member' | 'trainer' | 'admin';
+  }): Promise<{ user: any | null; access_code?: string; error: string | null }> {
     try {
+      console.log('=== CREATE USER START (AUTH ONLY) ===');
+      console.log('User data:', userData);
+
       if (userData.role === 'member') {
-        // For members: create auth user with temp password
-        const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+        // For members: generate 7-digit access code
+        const accessCode = Math.floor(1000000 + Math.random() * 9000000).toString();
+        console.log('Generated 7-digit access code for member:', accessCode);
         
-        // Create auth user
-        const authResponse = await authApi.post('/signup', {
+        // Create auth user with access code as password
+        const authPayload = {
           email: userData.email,
-          password: tempPassword,
+          password: accessCode,
           options: {
             data: {
               first_name: userData.first_name,
               role: 'member',
-              is_temp_password: true, // Flag to indicate first-time login
-            },
-          },
+              access_code: accessCode
+            }
+          }
+        };
+        
+        console.log('Sending auth request with metadata:', {
+          url: '/signup',
+          payload: authPayload,
+          headers: authApi.defaults.headers
+        });
+        
+        const authResponse = await authApi.post('/signup', authPayload);
+
+        console.log('Auth user created successfully:', {
+          hasUser: !!authResponse.data.user,
+          userId: authResponse.data.user?.id,
+          email: authResponse.data.user?.email
         });
 
         if (!authResponse.data.user) {
           return { user: null, error: 'Failed to create auth user' };
         }
 
-        // Create profile
+        // Manually create the profile
         const profileData = {
           id: authResponse.data.user.id,
           email: userData.email,
           first_name: userData.first_name,
-          last_name: '', // Will be filled by user
+          last_name: '', // Keep blank as requested
           role: 'member',
-          temp_password: tempPassword, // Store temp password for email trigger
+          access_code: accessCode,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
 
-        const profileResponse = await supabaseApi.post('/profiles', profileData);
-        
+        console.log('Creating profile manually:', profileData);
+        try {
+          const profileResponse = await supabaseApi.post('/profiles', profileData);
+          console.log('Profile created successfully:', profileResponse.data);
+        } catch (profileError: any) {
+          console.error('Failed to create profile:', {
+            error: profileError.response?.data || profileError.message,
+            status: profileError.response?.status
+          });
+          return { user: null, error: 'Failed to create user profile' };
+        }
+
+        // Email notifications removed - no longer needed
+
         return { 
-          user: profileResponse.data[0], 
-          temp_password: tempPassword,
+          user: authResponse.data.user, 
+          access_code: accessCode,
           error: null 
         };
 
       } else if (userData.role === 'trainer') {
-        // For trainers: generate 6-digit code as password
-        const trainerCode = Math.floor(100000 + Math.random() * 900000).toString();
+        // For trainers: generate 6-digit access code
+        const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log('Generated 6-digit access code for trainer:', accessCode);
         
-        // Create auth user with the code as password
-        const authResponse = await authApi.post('/signup', {
+        // Create auth user with access code as password
+        const authPayload = {
           email: userData.email,
-          password: trainerCode, // Use code as password
+          password: accessCode,
           options: {
             data: {
               first_name: userData.first_name,
               role: 'trainer',
-              trainer_code: trainerCode, // Store code in metadata
+              access_code: accessCode
             },
           },
+        };
+        
+        console.log('Sending auth request with metadata:', {
+          url: '/signup',
+          payload: authPayload,
+          headers: authApi.defaults.headers
+        });
+        
+        const authResponse = await authApi.post('/signup', authPayload);
+
+        console.log('Auth user created for trainer successfully:', {
+          hasUser: !!authResponse.data.user,
+          userId: authResponse.data.user?.id,
+          email: authResponse.data.user?.email
         });
 
         if (!authResponse.data.user) {
           return { user: null, error: 'Failed to create auth user' };
         }
 
-        // Create profile
+        // Manually create the profile
         const profileData = {
           id: authResponse.data.user.id,
           email: userData.email,
           first_name: userData.first_name,
-          last_name: '', // Will be filled by user
+          last_name: '', // Keep blank as requested
           role: 'trainer',
+          access_code: accessCode,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
 
-        const profileResponse = await supabaseApi.post('/profiles', profileData);
-        
-        // Add to trainers table
-        await supabaseApi.post('/trainers', {
-          name: userData.first_name,
-          code: trainerCode,
-          email: userData.email,
-          is_active: true,
-        });
+        console.log('Creating trainer profile manually:', profileData);
+        try {
+          const profileResponse = await supabaseApi.post('/profiles', profileData);
+          console.log('Trainer profile created successfully:', profileResponse.data);
+        } catch (profileError: any) {
+          console.error('Failed to create trainer profile:', {
+            error: profileError.response?.data || profileError.message,
+            status: profileError.response?.status
+          });
+          return { user: null, error: 'Failed to create trainer profile' };
+        }
+
+        // Email notifications removed - no longer needed
 
         return { 
-          user: profileResponse.data[0], 
-          trainer_code: trainerCode,
+          user: authResponse.data.user, 
+          access_code: accessCode,
+          error: null 
+        };
+
+      } else if (userData.role === 'admin') {
+        // For admins: generate 6-digit access code
+        const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
+        console.log('Generated 6-digit access code for admin:', accessCode);
+        
+        // Create auth user with access code as password
+        const authPayload = {
+          email: userData.email,
+          password: accessCode,
+          options: {
+            data: {
+              first_name: userData.first_name,
+              role: 'admin',
+              access_code: accessCode
+            },
+          },
+        };
+        
+        console.log('Sending auth request with metadata:', {
+          url: '/signup',
+          payload: authPayload,
+          headers: authApi.defaults.headers
+        });
+        
+        const authResponse = await authApi.post('/signup', authPayload);
+
+        console.log('Auth user created for admin successfully:', {
+          hasUser: !!authResponse.data.user,
+          userId: authResponse.data.user?.id,
+          email: authResponse.data.user?.email
+        });
+
+        if (!authResponse.data.user) {
+          return { user: null, error: 'Failed to create auth user' };
+        }
+
+        // Manually create the profile
+        const profileData = {
+          id: authResponse.data.user.id,
+          email: userData.email,
+          first_name: userData.first_name,
+          last_name: '', // Keep blank as requested
+          role: 'admin',
+          access_code: accessCode,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        console.log('Creating admin profile manually:', profileData);
+        try {
+          const profileResponse = await supabaseApi.post('/profiles', profileData);
+          console.log('Admin profile created successfully:', profileResponse.data);
+        } catch (profileError: any) {
+          console.error('Failed to create admin profile:', {
+            error: profileError.response?.data || profileError.message,
+            status: profileError.response?.status
+          });
+          return { user: null, error: 'Failed to create admin profile' };
+        }
+
+        // Email notifications removed - no longer needed
+
+        return { 
+          user: authResponse.data.user, 
+          access_code: accessCode,
           error: null 
         };
       }
 
       return { user: null, error: 'Invalid role specified' };
     } catch (error: any) {
-      console.error('Error creating user:', error.response?.data || error.message);
+      console.error('=== CREATE USER ERROR ===');
+      console.error('Error details:', error.response?.data || error.message);
+      console.error('Error status:', error.response?.status);
+      console.error('Full error:', error);
       
       // Handle specific Supabase errors
       if (error.response?.data?.error_description) {
@@ -524,6 +658,14 @@ export const userService = {
           return { user: null, error: 'An account with this email already exists' };
         }
         return { user: null, error: error.response.data.error_description };
+      }
+      
+      // Handle database constraint errors
+      if (error.response?.data?.message) {
+        if (error.response.data.message.includes('duplicate key')) {
+          return { user: null, error: 'An account with this email already exists' };
+        }
+        return { user: null, error: error.response.data.message };
       }
       
       return { user: null, error: 'Failed to create user. Please try again.' };
@@ -555,6 +697,11 @@ export const classService = {
     }
   },
 
+  // Get all classes (alias for compatibility)
+  async getAllClasses(): Promise<{ classes: any[] | null; error: string | null }> {
+    return this.getClasses();
+  },
+
   // Get trainer's classes
   async getTrainerClasses(trainerId: string, endDate: string): Promise<{ classes: any[] | null; error: string | null }> {
     try {
@@ -581,14 +728,14 @@ export const classService = {
   // Get all trainers (for admin scheduling)
   async getTrainers(): Promise<{ trainers: any[] | null; error: string | null }> {
     try {
-      const response = await supabaseApi.get('/trainers?is_active=eq.true&order=name.asc');
+      const response = await supabaseApi.get('/profiles?role=eq.trainer&order=first_name.asc');
       // Transform the data to match the expected format
       const trainers = response.data.map((trainer: any) => ({
         id: trainer.id,
-        first_name: trainer.name.split(' ')[0] || trainer.name,
-        last_name: trainer.name.split(' ').slice(1).join(' ') || '',
+        first_name: trainer.first_name,
+        last_name: trainer.last_name,
         email: trainer.email,
-        code: trainer.code,
+        code: trainer.access_code,
       }));
       return { trainers, error: null };
     } catch (error: any) {
@@ -800,12 +947,156 @@ export const trainerService = {
   // Get all trainers
   async getAllTrainers(): Promise<{ trainers: any[] | null; error: string | null }> {
     try {
-      const response = await supabaseApi.get('/trainers?is_active=eq.true');
+      const response = await supabaseApi.get('/profiles?role=eq.trainer');
       return { trainers: response.data, error: null };
     } catch (error: any) {
       console.error('Error fetching trainers:', error.response?.data || error.message);
       return { trainers: null, error: 'Failed to fetch trainers' };
     }
   },
+};
+
+
+// Schedule Services
+export const scheduleService = {
+  // Create a single class schedule
+  async createClassSchedule(scheduleData: {
+    class_id: string;
+    trainer_id: string;
+    scheduled_date: string;
+    scheduled_time: string;
+    difficulty_level: string;
+    location: string;
+    max_bookings: number;
+    is_recurring?: boolean;
+    recurring_type?: string;
+    recurring_end_date?: string;
+    parent_schedule_id?: string;
+  }): Promise<{ schedule: any | null; error: string | null }> {
+    try {
+      console.log('Creating class schedule:', scheduleData);
+      const response = await supabaseApi.post('/class_schedules', scheduleData);
+      console.log('Class schedule created successfully:', response.data);
+      return { schedule: response.data, error: null };
+    } catch (error: any) {
+      console.error('Error creating class schedule:', error.response?.data || error.message);
+      return { schedule: null, error: error.response?.data?.message || 'Failed to create class schedule' };
+    }
+  },
+
+  // Get scheduled classes for a date range
+  async getScheduledClasses(startDate: string, endDate: string): Promise<{ schedules: any[] | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.get(
+        `/class_schedules?scheduled_date=gte.${startDate}&scheduled_date=lte.${endDate}&select=*,classes(name),profiles(first_name,last_name)`
+      );
+      return { schedules: response.data, error: null };
+    } catch (error: any) {
+      console.error('Error fetching scheduled classes:', error.response?.data || error.message);
+      return { schedules: null, error: 'Failed to fetch scheduled classes' };
+    }
+  },
+
+  // Delete a class schedule
+  async deleteClassSchedule(scheduleId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      await supabaseApi.delete(`/class_schedules?id=eq.${scheduleId}`);
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error deleting class schedule:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to delete class schedule' };
+    }
+  },
+
+  // Create recurring schedules
+  async createRecurringSchedules(
+    baseScheduleData: {
+      class_id: string;
+      trainer_id: string;
+      scheduled_date: string;
+      scheduled_time: string;
+      difficulty_level: string;
+      location: string;
+      max_bookings: number;
+      is_recurring: boolean;
+      recurring_type?: string;
+      recurring_end_date?: string;
+    }
+  ): Promise<{ schedules: any[] | null; error: string | null }> {
+    try {
+      const schedules = [];
+      const startDate = new Date(baseScheduleData.scheduled_date);
+      const endDate = baseScheduleData.recurring_end_date ? new Date(baseScheduleData.recurring_end_date) : new Date();
+      
+      // Create the parent schedule first
+      const parentSchedule = await this.createClassSchedule({
+        ...baseScheduleData,
+        parent_schedule_id: undefined
+      });
+      
+      if (parentSchedule.error) {
+        return { schedules: null, error: parentSchedule.error };
+      }
+      
+      schedules.push(parentSchedule.schedule);
+      
+      // Generate recurring instances
+      let currentDate = new Date(startDate);
+      const parentId = parentSchedule.schedule[0].id;
+      
+      if (baseScheduleData.recurring_type === 'daily') {
+        // Daily: Only for the rest of the current week (Monday to Saturday, excluding Sunday)
+        const currentDay = startDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+        const daysUntilSaturday = currentDay === 0 ? 6 : 6 - currentDay; // If Sunday, go to next Saturday (6 days), otherwise go to Saturday of current week
+        
+        for (let i = 1; i <= daysUntilSaturday; i++) {
+          currentDate.setDate(startDate.getDate() + i);
+          
+          // Skip Sunday (day 0)
+          if (currentDate.getDay() === 0) {
+            continue;
+          }
+          
+          const scheduleData = {
+            ...baseScheduleData,
+            scheduled_date: currentDate.toISOString().split('T')[0],
+            is_recurring: false, // Child schedules are not recurring
+            parent_schedule_id: parentId
+          };
+          
+          const childSchedule = await this.createClassSchedule(scheduleData);
+          if (childSchedule.error) {
+            console.error('Error creating child schedule:', childSchedule.error);
+            continue;
+          }
+          schedules.push(childSchedule.schedule);
+        }
+      } else if (baseScheduleData.recurring_type === 'weekly') {
+        // Weekly: 3 weeks in advance
+        for (let week = 1; week <= 3; week++) {
+          currentDate.setDate(startDate.getDate() + (week * 7));
+          
+          const scheduleData = {
+            ...baseScheduleData,
+            scheduled_date: currentDate.toISOString().split('T')[0],
+            is_recurring: false, // Child schedules are not recurring
+            parent_schedule_id: parentId
+          };
+          
+          const childSchedule = await this.createClassSchedule(scheduleData);
+          if (childSchedule.error) {
+            console.error('Error creating child schedule:', childSchedule.error);
+            continue;
+          }
+          schedules.push(childSchedule.schedule);
+        }
+      }
+      
+      return { schedules, error: null };
+    } catch (error: any) {
+      console.error('Error creating recurring schedules:', error);
+      return { schedules: null, error: 'Failed to create recurring schedules' };
+    }
+  }
 };
 

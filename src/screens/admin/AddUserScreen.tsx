@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
-import { userService } from '../../services/api';
+import { userService, testSupabaseConnection } from '../../services/api';
 
 interface Props {
   navigation: any;
@@ -26,7 +26,7 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
   // Form fields - only basic required fields
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [role, setRole] = useState<'member' | 'trainer'>(defaultRole);
+  const [role, setRole] = useState<'member' | 'trainer' | 'admin'>(defaultRole);
 
   const handleSubmit = async () => {
     // Validation
@@ -43,6 +43,15 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
     setIsLoading(true);
 
     try {
+      // First, test Supabase connection
+      console.log('Testing Supabase connection before creating user...');
+      const connectionTest = await testSupabaseConnection();
+      if (!connectionTest.success) {
+        Alert.alert('Connection Error', `Failed to connect to Supabase: ${connectionTest.error}`);
+        return;
+      }
+      console.log('Supabase connection test passed');
+
       const userData = {
         email,
         first_name: firstName,
@@ -59,10 +68,14 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
       // Show success message with appropriate details
       let message = `User created successfully!`;
       
-      if (role === 'member' && result.temp_password) {
-        message += `\n\nTemporary Password: ${result.temp_password}\n\nUser will receive a welcome email with this password. They must change it on first login.`;
-      } else if (role === 'trainer' && result.trainer_code) {
-        message += `\n\nTrainer Code: ${result.trainer_code}\n\nTrainer will receive a welcome email with this code. They can use this code to access the trainer panel.`;
+      if (result.access_code) {
+        if (role === 'member') {
+          message += `\n\n7-Digit Access Code: ${result.access_code}\n\nA welcome email has been sent to the member with this code. They must use this code to log in and create their password.`;
+        } else if (role === 'trainer') {
+          message += `\n\n6-Digit Access Code: ${result.access_code}\n\nA welcome email has been sent to the trainer with this code. They can use this code to access the trainer panel.`;
+        } else if (role === 'admin') {
+          message += `\n\n6-Digit Access Code: ${result.access_code}\n\nA welcome email has been sent to the admin with this code. They can use this code to access the admin panel.`;
+        }
       }
 
       Alert.alert(
@@ -102,7 +115,7 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
           <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Add New {role === 'trainer' ? 'Trainer' : 'Member'}
+          Add New {role === 'trainer' ? 'Trainer' : role === 'admin' ? 'Admin' : 'Member'}
         </Text>
         <View style={styles.placeholder} />
       </View>
@@ -140,6 +153,20 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
               Trainer
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.roleOption,
+              role === 'admin' && { backgroundColor: theme.colors.primary }
+            ]}
+            onPress={() => setRole('admin')}
+          >
+            <Text style={[
+              styles.roleText,
+              { color: role === 'admin' ? 'white' : theme.colors.text }
+            ]}>
+              Admin
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Required Fields */}
@@ -165,8 +192,10 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
         <View style={styles.infoBox}>
           <Text style={[styles.infoText, { color: theme.colors.textSecondary }]}>
             {role === 'member' 
-              ? 'Member will receive a temporary password and must change it on first login.'
-              : 'Trainer will receive a unique code to access the trainer panel.'
+              ? 'Member will receive a 7-digit access code and must use it to log in and create their password.'
+              : role === 'trainer'
+              ? 'Trainer will receive a 6-digit access code to access the trainer panel.'
+              : 'Admin will receive a 6-digit access code to access the admin panel.'
             }
           </Text>
         </View>
@@ -183,7 +212,7 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
             <>
               <Ionicons name="person-add" size={20} color="white" />
               <Text style={styles.submitButtonText}>
-                Create {role === 'trainer' ? 'Trainer' : 'Member'}
+                Create {role === 'trainer' ? 'Trainer' : role === 'admin' ? 'Admin' : 'Member'}
               </Text>
             </>
           )}

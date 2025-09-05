@@ -11,8 +11,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
-import { userService, classService, trainerService } from '../../services/api';
-import { User, Class } from '../../types';
+import { useAdminData } from '../../context/AdminDataContext';
+import { userService } from '../../services/api';
+import { User } from '../../types';
 
 interface Props {
   navigation: any;
@@ -23,34 +24,25 @@ interface Props {
 const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut }) => {
   const { user } = route.params;
   const { theme } = useTheme();
+  const { classes, trainers, scheduledClasses, loading, loadAllData, refreshScheduledClasses } = useAdminData();
   const [users, setUsers] = useState<User[]>([]);
-  const [trainers, setTrainers] = useState<any[]>([]);
-  const [classes, setClasses] = useState<Class[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'trainers' | 'classes'>('users');
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
-    setLoading(true);
     try {
-      // Load users, trainers, and classes data
-      // Note: You'll need to implement these methods in the API service
+      // Load users data (not cached as it changes frequently)
       const usersData = await userService.getAllUsers();
-      const trainersData = await trainerService.getAllTrainers();
-      const classesData = await classService.getClasses();
-      
       if (usersData.users) setUsers(usersData.users);
-      if (trainersData.trainers) setTrainers(trainersData.trainers);
-      if (classesData.classes) setClasses(classesData.classes);
+      
+      // Load all other admin data (classes, trainers, schedules) - cached
+      await loadAllData();
     } catch (error) {
       console.error('Error loading admin data:', error);
       Alert.alert('Error', 'Failed to load dashboard data');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -72,7 +64,7 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
   };
 
   const handleScheduleClass = () => {
-    navigation.navigate('ScheduleClass');
+    navigation.navigate('SelectDate');
   };
 
   const handleAddUser = () => {
@@ -83,101 +75,95 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
     navigation.navigate('AddUser', { defaultRole: 'trainer' });
   };
 
-  const renderUserCard = (user: User) => (
-    <View key={user.id} style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-      <View style={styles.cardHeader}>
-        <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
-          {user.first_name} {user.last_name}
-        </Text>
-        <View style={[styles.roleBadge, { backgroundColor: theme.colors.primary }]}>
-          <Text style={styles.roleText}>{user.role}</Text>
+  const handleManageUsers = () => {
+    // TODO: Navigate to users management screen
+    Alert.alert('Coming Soon', 'Users management screen will be implemented');
+  };
+
+  const handleManageTrainers = () => {
+    // TODO: Navigate to trainers management screen
+    Alert.alert('Coming Soon', 'Trainers management screen will be implemented');
+  };
+
+  const handleManageClasses = () => {
+    // TODO: Navigate to classes management screen
+    Alert.alert('Coming Soon', 'Classes management screen will be implemented');
+  };
+
+  const handleManageSchedule = () => {
+    navigation.navigate('ScheduleView');
+  };
+
+  const handleAddClassTemplate = () => {
+    // TODO: Navigate to add class template screen
+    Alert.alert('Coming Soon', 'Add class template screen will be implemented');
+  };
+
+  const renderDashboardCard = (
+    title: string,
+    count: number,
+    icon: string,
+    onPress: () => void,
+    subtitle?: string
+  ) => (
+    <View style={styles.dashboardCardContainer}>
+      <Text style={[styles.cardHeader, { color: theme.colors.text }]}>{title}</Text>
+      <TouchableOpacity
+        style={[styles.dashboardCard, { backgroundColor: theme.colors.surface }]}
+        onPress={onPress}
+      >
+        <View style={[styles.cardIcon, { backgroundColor: '#333333' }]}>
+          <Ionicons name={icon as any} size={32} color="white" />
         </View>
-      </View>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
-        {user.email}
-      </Text>
-      <View style={styles.cardActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="eye" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>View</Text>
+        <View style={styles.cardContent}>
+          <Text style={[styles.cardCount, { color: theme.colors.text }]}>{count}</Text>
+          {subtitle && (
+            <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
+              {subtitle}
+            </Text>
+          )}
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderQuickActions = () => (
+    <View style={styles.quickActionsContainer}>
+      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Quick Actions</Text>
+      <View style={styles.quickActionsGrid}>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          onPress={handleAddUser}
+        >
+          <Ionicons name="person-add" size={24} color="white" />
+          <Text style={styles.quickActionText}>Add User</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="create" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>Edit</Text>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          onPress={handleAddTrainer}
+        >
+          <Ionicons name="fitness" size={24} color="white" />
+          <Text style={styles.quickActionText}>Add Trainer</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="trash" size={16} color={theme.colors.error} />
-          <Text style={[styles.actionText, { color: theme.colors.error }]}>Delete</Text>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          onPress={handleAddClassTemplate}
+        >
+          <Ionicons name="add-circle" size={24} color="white" />
+          <Text style={styles.quickActionText}>Add Class Template</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          onPress={handleScheduleClass}
+        >
+          <Ionicons name="calendar" size={24} color="white" />
+          <Text style={styles.quickActionText}>Schedule Class</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
-  const renderTrainerCard = (trainer: any) => (
-    <View key={trainer.id} style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-      <View style={styles.cardHeader}>
-        <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
-          {trainer.name}
-        </Text>
-        <View style={[styles.roleBadge, { backgroundColor: theme.colors.info }]}>
-          <Text style={styles.roleText}>Trainer</Text>
-        </View>
-      </View>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
-        {trainer.email}
-      </Text>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
-        Code: {trainer.code}
-      </Text>
-      <View style={styles.cardActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="eye" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>View</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="create" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="trash" size={16} color={theme.colors.error} />
-          <Text style={[styles.actionText, { color: theme.colors.error }]}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderClassCard = (classItem: Class) => (
-    <View key={classItem.id} style={[styles.card, { backgroundColor: theme.colors.surface }]}>
-      <View style={styles.cardHeader}>
-        <Text style={[styles.cardTitle, { color: theme.colors.text }]}>
-          {classItem.name}
-        </Text>
-        <View style={[styles.difficultyBadge, { backgroundColor: theme.colors.info }]}>
-          <Text style={styles.roleText}>{classItem.difficulty_level}</Text>
-        </View>
-      </View>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
-        {classItem.description}
-      </Text>
-      <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
-        Duration: {classItem.duration_minutes} min | Max: {classItem.max_capacity}
-      </Text>
-      <View style={styles.cardActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="eye" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>View</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="create" size={16} color={theme.colors.primary} />
-          <Text style={[styles.actionText, { color: theme.colors.primary }]}>Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="trash" size={16} color={theme.colors.error} />
-          <Text style={[styles.actionText, { color: theme.colors.error }]}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   if (loading) {
     return (
@@ -191,57 +177,16 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Admin Dashboard
-        </Text>
+        <View>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+            Admin Dashboard
+          </Text>
+          <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>
+            Welcome back, {user.first_name}
+          </Text>
+        </View>
         <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
           <Ionicons name="log-out-outline" size={24} color={theme.colors.error} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Tab Navigation */}
-      <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface }]}>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'users' && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 }
-          ]}
-          onPress={() => setActiveTab('users')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'users' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Users ({users.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'trainers' && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 }
-          ]}
-          onPress={() => setActiveTab('trainers')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'trainers' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Trainers ({trainers.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'classes' && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 }
-          ]}
-          onPress={() => setActiveTab('classes')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'classes' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Classes ({classes.length})
-          </Text>
         </TouchableOpacity>
       </View>
 
@@ -252,61 +197,40 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {activeTab === 'users' ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                Manage Users
-              </Text>
-              <TouchableOpacity 
-                style={[styles.addButton, { backgroundColor: theme.colors.primary }]}
-                onPress={handleAddUser}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.addButtonText}>Add User</Text>
-              </TouchableOpacity>
-            </View>
-            {users.map(renderUserCard)}
-          </View>
-        ) : activeTab === 'trainers' ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                Manage Trainers
-              </Text>
-              <TouchableOpacity 
-                style={[styles.addButton, { backgroundColor: theme.colors.primary }]}
-                onPress={handleAddTrainer}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.addButtonText}>Add Trainer</Text>
-              </TouchableOpacity>
-            </View>
-            {trainers.map(renderTrainerCard)}
-          </View>
-        ) : (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                Manage Classes
-              </Text>
-              <View style={styles.buttonGroup}>
-                <TouchableOpacity 
-                  style={[styles.addButton, { backgroundColor: theme.colors.secondary, marginRight: 8 }]}
-                  onPress={handleScheduleClass}
-                >
-                  <Ionicons name="calendar" size={20} color="white" />
-                  <Text style={styles.addButtonText}>Schedule</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.colors.primary }]}>
-                  <Ionicons name="add" size={20} color="white" />
-                  <Text style={styles.addButtonText}>Add Class</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            {classes.map(renderClassCard)}
-          </View>
-        )}
+        {/* Dashboard Cards */}
+        <View style={styles.dashboardGrid}>
+          {renderDashboardCard(
+            'Users',
+            users.length,
+            'people',
+            handleManageUsers,
+            'Manage members'
+          )}
+          {renderDashboardCard(
+            'Trainers',
+            trainers.length,
+            'fitness',
+            handleManageTrainers,
+            'Manage trainers'
+          )}
+          {renderDashboardCard(
+            'Classes',
+            classes.length,
+            'library',
+            handleManageClasses,
+            'Manage class templates'
+          )}
+          {renderDashboardCard(
+            'Schedule',
+            scheduledClasses.length,
+            'calendar',
+            handleManageSchedule,
+            'Manage class schedule'
+          )}
+        </View>
+
+        {/* Quick Actions */}
+        {renderQuickActions()}
       </ScrollView>
     </View>
   );
@@ -330,55 +254,38 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
   },
+  headerSubtitle: {
+    fontSize: 14,
+    marginTop: 2,
+  },
   signOutButton: {
     padding: 8,
   },
-  tabContainer: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
   content: {
     flex: 1,
-  },
-  section: {
     padding: 20,
   },
-  sectionHeader: {
+  dashboardGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: 30,
+  },
+  dashboardCardContainer: {
+    width: '48%',
     marginBottom: 20,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  cardHeader: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  addButton: {
+  dashboardCard: {
+    padding: 20,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  card: {
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -388,54 +295,105 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  cardIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginRight: 16,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  cardContent: {
     flex: 1,
   },
-  roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  difficultyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  roleText: {
-    color: 'white',
-    fontSize: 12,
+  cardTitle: {
+    fontSize: 16,
     fontWeight: '600',
+    marginBottom: 4,
+  },
+  cardCount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 2,
   },
   cardSubtitle: {
+    fontSize: 12,
+  },
+  quickActionsContainer: {
+    marginBottom: 30,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  quickActionButton: {
+    width: '48%',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  quickActionText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  upcomingClassesContainer: {
+    marginBottom: 30,
+  },
+  emptyState: {
+    padding: 40,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 16,
+    marginTop: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  emptyStateButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  emptyStateButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  scheduleCard: {
+    width: 200,
+    padding: 16,
+    borderRadius: 12,
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scheduleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  scheduleTime: {
     fontSize: 14,
     marginBottom: 4,
   },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 16,
-  },
-  actionText: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 4,
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  scheduleTrainer: {
+    fontSize: 12,
   },
 });
 

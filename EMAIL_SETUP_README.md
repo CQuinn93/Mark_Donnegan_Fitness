@@ -207,3 +207,4 @@ SELECT send_test_email('test@example.com', 'Test User', 'test');
 The system is now ready to automatically send welcome emails whenever new users are created!
 
 
+
