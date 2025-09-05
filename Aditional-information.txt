@@ -1,0 +1,17 @@
+
+Make.com log in information
+Email: MDitness93@gmail.com
+Password: MarkDonneganFitness93!
+
+OAUTH
+
+
+(MAKE.COM REQUIRES RE-VERIFICATION ON THE 2ND OF MARCH 2026)
+"You have until March 2nd 2026, 05:18 PM (Mon) to reauthorize your connection"
+
+
+
+
+02/09/2025
+Latest work - Notification system set up to alert new users of their accounts and temp passwords. 
+Error occuring still so needs to be debugged. 
