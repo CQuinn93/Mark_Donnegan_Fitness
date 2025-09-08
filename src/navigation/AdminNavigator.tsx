@@ -7,6 +7,9 @@ import SelectDateScreen from '../screens/admin/SelectDateScreen';
 import ScheduleClassScreen from '../screens/admin/ScheduleClassScreen';
 import ScheduleViewScreen from '../screens/admin/ScheduleViewScreen';
 import AddUserScreen from '../screens/admin/AddUserScreen';
+import AddTrainerScreen from '../screens/admin/AddTrainerScreen';
+import AddMemberScreen from '../screens/admin/AddMemberScreen';
+import AddClassTemplateScreen from '../screens/admin/AddClassTemplateScreen';
 import { User } from '../types';
 
 export type AdminStackParamList = {
@@ -15,6 +18,9 @@ export type AdminStackParamList = {
   ScheduleClass: { selectedDate?: string };
   ScheduleView: undefined;
   AddUser: { defaultRole?: 'member' | 'trainer' };
+  AddTrainer: undefined;
+  AddMember: undefined;
+  AddClassTemplate: undefined;
 };
 
 const Stack = createStackNavigator<AdminStackParamList>();
@@ -64,6 +70,21 @@ const AdminNavigator: React.FC<AdminNavigatorProps> = ({ user, onSignOut }) => {
           name="AddUser" 
           component={AddUserScreen}
           options={{ title: 'Add User' }}
+        />
+        <Stack.Screen 
+          name="AddTrainer" 
+          component={AddTrainerScreen}
+          options={{ title: 'Add Trainer' }}
+        />
+        <Stack.Screen 
+          name="AddMember" 
+          component={AddMemberScreen}
+          options={{ title: 'Add Member' }}
+        />
+        <Stack.Screen 
+          name="AddClassTemplate" 
+          component={AddClassTemplateScreen}
+          options={{ title: 'Add Class Template' }}
         />
       </Stack.Navigator>
     </AdminDataProvider>

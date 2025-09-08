@@ -107,10 +107,11 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
           const user = {
             id: result.trainer.id,
             email: result.trainer.email,
-            first_name: result.trainer.name.split(' ')[0] || result.trainer.name,
-            last_name: result.trainer.name.split(' ').slice(1).join(' ') || '',
+            first_name: result.trainer.first_name || '',
+            last_name: result.trainer.last_name || '',
             role: 'trainer',
           };
+          setStatusMessage('Trainer login successful! Redirecting...');
           onLoginSuccess(user);
         } else {
           setStatusMessage(result.error || 'Trainer access denied');

@@ -8,6 +8,7 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
@@ -160,14 +161,14 @@ const TrainerDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut 
 
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
@@ -221,7 +222,7 @@ const TrainerDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut 
           )}
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -234,7 +235,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',

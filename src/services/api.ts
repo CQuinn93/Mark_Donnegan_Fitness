@@ -702,20 +702,43 @@ export const classService = {
     return this.getClasses();
   },
 
+  // Create class template
+  async createClassTemplate(classData: {
+    name: string;
+    description: string;
+    duration: number;
+    max_members: number;
+  }): Promise<{ class: any | null; error: string | null }> {
+    try {
+      console.log('Creating class template:', classData);
+      const response = await supabaseApi.post('/classes', classData);
+      console.log('Class template created successfully:', response.data);
+      return { class: response.data[0], error: null };
+    } catch (error: any) {
+      console.error('Error creating class template:', error.response?.data || error.message);
+      return { class: null, error: error.response?.data?.message || 'Failed to create class template' };
+    }
+  },
+
   // Get trainer's classes
   async getTrainerClasses(trainerId: string, endDate: string): Promise<{ classes: any[] | null; error: string | null }> {
     try {
       const response = await supabaseApi.get(
-        `/class_schedules?trainer_id=eq.${trainerId}&scheduled_date=lte.${endDate}&is_active=eq.true&select=*,classes(name,description,difficulty_level,duration_minutes)`
+        `/class_schedules?trainer_id=eq.${trainerId}&scheduled_date=lte.${endDate}&status=eq.active&select=*,classes(name,description,duration)&order=scheduled_date.asc,scheduled_time.asc`
       );
       
-      // Transform the response to flatten the class data
+      // Transform the response to flatten the class data and map field names
       const transformedClasses = response.data?.map((schedule: any) => ({
         ...schedule,
         class_name: schedule.classes?.name,
         class_description: schedule.classes?.description,
-        difficulty_level: schedule.classes?.difficulty_level,
-        duration_minutes: schedule.classes?.duration_minutes,
+        difficulty_level: schedule.difficulty_level, // Get from class_schedules table
+        duration_minutes: schedule.classes?.duration, // Get from classes table
+        // Map database fields to expected interface fields
+        start_time: schedule.scheduled_time, // Map scheduled_time to start_time
+        end_time: schedule.scheduled_time, // For now, use same time (could calculate end time based on duration)
+        max_capacity: schedule.max_bookings, // Map max_bookings to max_capacity
+        current_enrollment: schedule.current_bookings, // Map current_bookings to current_enrollment
       })) || [];
       
       return { classes: transformedClasses, error: null };
@@ -755,9 +778,15 @@ export const classService = {
   }): Promise<{ schedule: any | null; error: string | null }> {
     try {
       const response = await supabaseApi.post('/class_schedules', {
-        ...scheduleData,
-        current_enrollment: 0,
-        is_active: true,
+        class_id: scheduleData.class_id,
+        trainer_id: scheduleData.trainer_id,
+        scheduled_date: scheduleData.scheduled_date,
+        scheduled_time: scheduleData.start_time, // Map start_time to scheduled_time
+        max_bookings: scheduleData.max_capacity, // Map max_capacity to max_bookings
+        current_bookings: 0, // Use correct field name
+        status: 'active', // Use correct field name
+        difficulty_level: 'beginner', // Default value, should be provided by caller
+        location: 'gym', // Default value
       });
       const schedule = response.data[0];
       return { schedule, error: null };
@@ -770,7 +799,7 @@ export const classService = {
   // Get class schedules for a specific date
   async getClassSchedules(date: string): Promise<{ schedules: any[] | null; error: string | null }> {
     try {
-      const response = await supabaseApi.get(`/class_schedules?scheduled_date=eq.${date}&is_active=eq.true&select=*,classes(name),profiles!trainer_id(first_name,last_name)`);
+      const response = await supabaseApi.get(`/class_schedules?scheduled_date=eq.${date}&status=eq.active&select=*,classes(name),profiles!trainer_id(first_name,last_name)`);
       const schedules = response.data.map((schedule: any) => ({
         ...schedule,
         class_name: schedule.classes?.name || 'Unknown Class',

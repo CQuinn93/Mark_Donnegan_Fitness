@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
@@ -108,7 +109,8 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <ScrollView style={styles.scrollView}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity onPress={handleCancel}>
@@ -172,7 +174,7 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
         {/* Required Fields */}
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Required Information *</Text>
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
           placeholder="Email Address"
           placeholderTextColor={theme.colors.textSecondary}
           value={email}
@@ -181,7 +183,7 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
           autoCapitalize="none"
         />
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
           placeholder="First Name"
           placeholderTextColor={theme.colors.textSecondary}
           value={firstName}
@@ -189,7 +191,8 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
         />
 
         {/* Information Text */}
-        <View style={styles.infoBox}>
+        <View style={[styles.infoBox, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="information-circle" size={20} color={theme.colors.info} />
           <Text style={[styles.infoText, { color: theme.colors.textSecondary }]}>
             {role === 'member' 
               ? 'Member will receive a 7-digit access code and must use it to log in and create their password.'
@@ -218,12 +221,16 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
           )}
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  scrollView: {
     flex: 1,
   },
   header: {
@@ -264,7 +271,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#333333',
   },
   roleText: {
     fontSize: 16,
@@ -272,23 +279,24 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
     fontSize: 16,
   },
   infoBox: {
-    backgroundColor: '#f5f5f5',
+    flexDirection: 'row',
     padding: 16,
     borderRadius: 8,
     marginTop: 20,
     marginBottom: 20,
+    alignItems: 'flex-start',
   },
   infoText: {
     fontSize: 14,
     lineHeight: 20,
-    textAlign: 'center',
+    marginLeft: 8,
+    flex: 1,
   },
   submitButton: {
     flexDirection: 'row',

@@ -8,6 +8,8 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
@@ -68,11 +70,11 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
   };
 
   const handleAddUser = () => {
-    navigation.navigate('AddUser');
+    navigation.navigate('AddMember');
   };
 
   const handleAddTrainer = () => {
-    navigation.navigate('AddUser', { defaultRole: 'trainer' });
+    navigation.navigate('AddTrainer');
   };
 
   const handleManageUsers = () => {
@@ -95,8 +97,7 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
   };
 
   const handleAddClassTemplate = () => {
-    // TODO: Navigate to add class template screen
-    Alert.alert('Coming Soon', 'Add class template screen will be implemented');
+    navigation.navigate('AddClassTemplate');
   };
 
   const renderDashboardCard = (
@@ -167,36 +168,39 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
 
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: '#000000' }]}>
+        <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#000000' }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
+      <View style={[styles.header, { backgroundColor: '#000000' }]}>
         <View>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+          <Text style={[styles.headerTitle, { color: 'white' }]}>
             Admin Dashboard
           </Text>
-          <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>
+          <Text style={[styles.headerSubtitle, { color: '#B0B0B0' }]}>
             Welcome back, {user.first_name}
           </Text>
         </View>
         <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <Ionicons name="log-out-outline" size={24} color={theme.colors.error} />
+          <Ionicons name="log-out-outline" size={24} color="#F44336" />
         </TouchableOpacity>
       </View>
 
       {/* Content */}
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+      <View style={[styles.contentContainer, { backgroundColor: theme.colors.background }]}>
+        <ScrollView
+          style={styles.content}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
         {/* Dashboard Cards */}
         <View style={styles.dashboardGrid}>
           {renderDashboardCard(
@@ -231,8 +235,9 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
 
         {/* Quick Actions */}
         {renderQuickActions()}
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 };
 
@@ -240,12 +245,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  contentContainer: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
