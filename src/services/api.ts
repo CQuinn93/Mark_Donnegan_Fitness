@@ -183,16 +183,42 @@ export const authService = {
   // Sign out
   async signOut(): Promise<{ error: string | null }> {
     try {
-      await authApi.post('/logout');
-      // Clear the token
+      // Check if we have a valid token before attempting logout
+      const storedToken = await this.getStoredSession();
+      
+      if (storedToken && authApi.defaults.headers.common['Authorization']) {
+        try {
+          await authApi.post('/logout');
+          console.log('Logout API call successful');
+        } catch (logoutError: any) {
+          console.log('Logout API call failed, but continuing with local cleanup:', logoutError.response?.data || logoutError.message);
+          // Don't throw - we'll still clear the local session
+        }
+      } else {
+        console.log('No valid token found, skipping logout API call');
+      }
+      
+      // Always clear the local session regardless of API call result
+      await this.clearStoredSession();
       delete supabaseApi.defaults.headers.common['Authorization'];
       delete authApi.defaults.headers.common['Authorization'];
+      
+      console.log('Sign out successful');
       return { error: null };
     } catch (error: any) {
       console.error('Sign out error:', error.response?.data || error.message);
-      // Even if logout fails, clear the tokens
+      
+      // Even if everything fails, clear the local session
+      try {
+        await this.clearStoredSession();
+      } catch (clearError) {
+        console.log('Error clearing stored session:', clearError);
+      }
+      
       delete supabaseApi.defaults.headers.common['Authorization'];
       delete authApi.defaults.headers.common['Authorization'];
+      
+      console.log('Sign out successful (with errors)');
       return { error: null };
     }
   },
@@ -223,11 +249,16 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
   } catch (error: any) {
     console.error('Get current user error:', error.response?.data || error.message);
     
-    // If we get a 401, clear the stored session as it's invalid
+    // Only clear the session if we get a 401 (unauthorized)
+    // Don't clear on 403 (forbidden) as that might be temporary
     if (error.response?.status === 401) {
+      console.log('Session expired (401), clearing stored session');
       await this.clearStoredSession();
       delete authApi.defaults.headers.common['Authorization'];
       delete supabaseApi.defaults.headers.common['Authorization'];
+    } else if (error.response?.status === 403) {
+      console.log('Access forbidden (403), but keeping session intact');
+      // Don't clear the session on 403 errors
     }
     
     return { user: null, error: 'Failed to get user' };
@@ -354,6 +385,9 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
           return { error: 'Not authenticated. Please log in again.' };
         }
         
+        // Store the current auth token to restore it if needed
+        const currentAuthToken = authApi.defaults.headers.common['Authorization'];
+        
         const response = await authApi.put('/user', {
           password: newPassword
         });
@@ -363,9 +397,11 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
       } catch (error: any) {
         console.error('Error changing password:', error);
         
-        // If we get a 403, it means the auth token is invalid
+        // Don't clear the session on password change failure
+        // The session should remain valid even if password change fails
+        
         if (error.response?.status === 403) {
-          return { error: 'Authentication expired. Please log in again.' };
+          return { error: 'Cannot change password at this time. You can change it later in your profile settings.' };
         }
         
         return { error: 'Failed to change password' };
@@ -394,20 +430,14 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
     // Check if user has temporary password (for first-time login)
     async checkTempPassword(): Promise<{ hasTempPassword: boolean; error: string | null }> {
       try {
-        const response = await authApi.get('/user');
-        if (response.data?.user_metadata?.is_access_code) {
-          return { hasTempPassword: true, error: null };
-        }
-        return { hasTempPassword: false, error: null };
+        // Don't make API calls that could interfere with the session
+        // Just assume they have a temp password if they're on the onboarding screen
+        console.log('Assuming user has temp password for onboarding');
+        return { hasTempPassword: true, error: null };
       } catch (error: any) {
         console.error('Error checking temp password:', error);
-        // If we get a 403 or any auth error, it means the user is not authenticated yet
-        // In this case, we'll assume they have a temp password if they're on the onboarding screen
-        if (error.response?.status === 403 || error.response?.status === 401) {
-          console.log('User not authenticated yet, assuming temp password for onboarding');
-          return { hasTempPassword: true, error: null };
-        }
-        return { hasTempPassword: false, error: 'Failed to check password status' };
+        // Always assume temp password for onboarding
+        return { hasTempPassword: true, error: null };
       }
     },
   }

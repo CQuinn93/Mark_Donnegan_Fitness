@@ -44,7 +44,7 @@ async function updateClassStatuses() {
     console.log(`📅 Current date: ${currentDate}`);
     console.log(`⏰ Current time: ${currentTime}`);
     
-    // Get all active classes for today
+    // Get all active classes for today with their class details
     const activeClassesResponse = await supabaseApi.get('/class_schedules', {
       params: {
         select: `
@@ -53,7 +53,7 @@ async function updateClassStatuses() {
           scheduled_time,
           status,
           class_id,
-          classes!inner(
+          classes(
             id,
             duration
           )
@@ -66,6 +66,11 @@ async function updateClassStatuses() {
     const activeClasses = activeClassesResponse.data;
     console.log(`📊 Found ${activeClasses.length} active classes for today`);
     
+    // Debug: Log the structure of the first class to understand the data format
+    if (activeClasses.length > 0) {
+      console.log('🔍 Sample class data structure:', JSON.stringify(activeClasses[0], null, 2));
+    }
+    
     if (activeClasses.length === 0) {
       console.log('✅ No active classes found for today. Status update complete.');
       return;
@@ -75,30 +80,61 @@ async function updateClassStatuses() {
     let completedCount = 0;
     
     for (const classSchedule of activeClasses) {
-      const scheduledDateTime = new Date(`${classSchedule.scheduled_date}T${classSchedule.scheduled_time}`);
-      const classEndTime = new Date(scheduledDateTime.getTime() + (classSchedule.classes.duration * 60000)); // duration in minutes
-      
-      let newStatus = null;
-      
-      // Check if class should be ongoing (start time reached but not finished)
-      if (now >= scheduledDateTime && now < classEndTime) {
-        newStatus = 'ongoing';
-        ongoingCount++;
-      }
-      // Check if class should be completed (end time passed)
-      else if (now >= classEndTime) {
-        newStatus = 'completed';
-        completedCount++;
-      }
-      
-      // Update status if needed
-      if (newStatus && newStatus !== classSchedule.status) {
-        await supabaseApi.patch(`/class_schedules?id=eq.${classSchedule.id}`, {
-          status: newStatus,
-          updated_at: new Date().toISOString()
-        });
+      try {
+        let classDuration = null;
         
-        console.log(`✅ Updated class ${classSchedule.id} status to ${newStatus}`);
+        // Try to get duration from the joined data first
+        if (classSchedule.classes && classSchedule.classes.duration) {
+          classDuration = classSchedule.classes.duration;
+        } else {
+          // Fallback: fetch the class data separately
+          console.log(`⚠️  Class data not available in join for class ${classSchedule.id}, fetching separately...`);
+          try {
+            const classResponse = await supabaseApi.get(`/classes?id=eq.${classSchedule.class_id}`);
+            if (classResponse.data && classResponse.data.length > 0) {
+              classDuration = classResponse.data[0].duration;
+              console.log(`✅ Retrieved duration ${classDuration} minutes for class ${classSchedule.id}`);
+            }
+          } catch (fetchError) {
+            console.error(`❌ Failed to fetch class data for ${classSchedule.id}:`, fetchError.message);
+          }
+        }
+        
+        // Skip if we still don't have duration
+        if (!classDuration) {
+          console.log(`⚠️  Skipping class ${classSchedule.id}: unable to determine duration`);
+          continue;
+        }
+        
+        const scheduledDateTime = new Date(`${classSchedule.scheduled_date}T${classSchedule.scheduled_time}`);
+        const classEndTime = new Date(scheduledDateTime.getTime() + (classDuration * 60000)); // duration in minutes
+        
+        let newStatus = null;
+        
+        // Check if class should be ongoing (start time reached but not finished)
+        if (now >= scheduledDateTime && now < classEndTime) {
+          newStatus = 'ongoing';
+          ongoingCount++;
+        }
+        // Check if class should be completed (end time passed)
+        else if (now >= classEndTime) {
+          newStatus = 'completed';
+          completedCount++;
+        }
+        
+        // Update status if needed
+        if (newStatus && newStatus !== classSchedule.status) {
+          await supabaseApi.patch(`/class_schedules?id=eq.${classSchedule.id}`, {
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          });
+          
+          console.log(`✅ Updated class ${classSchedule.id} status to ${newStatus}`);
+        }
+      } catch (classError) {
+        console.error(`❌ Error processing class ${classSchedule.id}:`, classError.message);
+        // Continue with next class instead of failing the entire script
+        continue;
       }
     }
     

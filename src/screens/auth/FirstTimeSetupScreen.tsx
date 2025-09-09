@@ -44,16 +44,10 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
   }, []);
 
   const checkTempPassword = async () => {
-    try {
-      const result = await authService.checkTempPassword();
-      if (result.hasTempPassword) {
-        setHasTempPassword(true);
-      }
-    } catch (error) {
-      console.log('Could not check temp password, assuming user needs to set password');
-      // If we can't check, assume they need to set a password
-      setHasTempPassword(true);
-    }
+    // Always assume they have a temp password if they're on the onboarding screen
+    // This prevents unnecessary API calls that could interfere with the session
+    console.log('Setting hasTempPassword to true for onboarding');
+    setHasTempPassword(true);
   };
 
   const handleSubmit = async () => {

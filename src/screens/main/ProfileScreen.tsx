@@ -22,7 +22,12 @@ const ProfileScreen: React.FC<Props> = ({ onSignOut }) => {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await authService.signOut();
+            try {
+              await authService.signOut();
+            } catch (error) {
+              console.log('Sign out error in ProfileScreen:', error);
+              // Continue with sign out even if API call fails
+            }
             onSignOut();
           },
         },
