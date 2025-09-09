@@ -78,18 +78,15 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
   };
 
   const handleManageUsers = () => {
-    // TODO: Navigate to users management screen
-    Alert.alert('Coming Soon', 'Users management screen will be implemented');
+    navigation.navigate('MemberManagement');
   };
 
   const handleManageTrainers = () => {
-    // TODO: Navigate to trainers management screen
-    Alert.alert('Coming Soon', 'Trainers management screen will be implemented');
+    navigation.navigate('TrainerManagement');
   };
 
   const handleManageClasses = () => {
-    // TODO: Navigate to classes management screen
-    Alert.alert('Coming Soon', 'Classes management screen will be implemented');
+    navigation.navigate('ClassTemplateManagement');
   };
 
   const handleManageSchedule = () => {
@@ -108,54 +105,54 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
     subtitle?: string
   ) => (
     <View style={styles.dashboardCardContainer}>
-      <Text style={[styles.cardHeader, { color: theme.colors.text }]}>{title}</Text>
+      <Text style={[styles.cardHeader, { color: 'white' }]}>{title}</Text>
       <TouchableOpacity
-        style={[styles.dashboardCard, { backgroundColor: theme.colors.surface }]}
+        style={[styles.dashboardCard, { backgroundColor: '#333333' }]}
         onPress={onPress}
       >
-        <View style={[styles.cardIcon, { backgroundColor: '#333333' }]}>
+        <View style={[styles.cardIcon, { backgroundColor: '#666666' }]}>
           <Ionicons name={icon as any} size={32} color="white" />
         </View>
         <View style={styles.cardContent}>
-          <Text style={[styles.cardCount, { color: theme.colors.text }]}>{count}</Text>
+          <Text style={[styles.cardCount, { color: 'white' }]}>{count}</Text>
           {subtitle && (
-            <Text style={[styles.cardSubtitle, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.cardSubtitle, { color: '#B0B0B0' }]}>
               {subtitle}
             </Text>
           )}
         </View>
-        <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={20} color="#B0B0B0" />
       </TouchableOpacity>
     </View>
   );
 
   const renderQuickActions = () => (
     <View style={styles.quickActionsContainer}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Quick Actions</Text>
+      <Text style={[styles.sectionTitle, { color: 'white' }]}>Quick Actions</Text>
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity
-          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          style={[styles.quickActionButton, { backgroundColor: '#333333' }]}
           onPress={handleAddUser}
         >
           <Ionicons name="person-add" size={24} color="white" />
           <Text style={styles.quickActionText}>Add User</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          style={[styles.quickActionButton, { backgroundColor: '#333333' }]}
           onPress={handleAddTrainer}
         >
           <Ionicons name="fitness" size={24} color="white" />
           <Text style={styles.quickActionText}>Add Trainer</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          style={[styles.quickActionButton, { backgroundColor: '#333333' }]}
           onPress={handleAddClassTemplate}
         >
           <Ionicons name="add-circle" size={24} color="white" />
           <Text style={styles.quickActionText}>Add Class Template</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.quickActionButton, { backgroundColor: '#000000' }]}
+          style={[styles.quickActionButton, { backgroundColor: '#333333' }]}
           onPress={handleScheduleClass}
         >
           <Ionicons name="calendar" size={24} color="white" />
@@ -194,7 +191,7 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
       </View>
 
       {/* Content */}
-      <View style={[styles.contentContainer, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.contentContainer, { backgroundColor: '#000000' }]}>
         <ScrollView
           style={styles.content}
           refreshControl={
@@ -204,8 +201,8 @@ const AdminDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut })
         {/* Dashboard Cards */}
         <View style={styles.dashboardGrid}>
           {renderDashboardCard(
-            'Users',
-            users.length,
+            'Members',
+            users.filter(user => user.role === 'member').length,
             'people',
             handleManageUsers,
             'Manage members'

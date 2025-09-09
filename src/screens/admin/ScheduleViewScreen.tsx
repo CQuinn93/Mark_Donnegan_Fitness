@@ -95,14 +95,14 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
   const loadScheduledClasses = async () => {
     setLoading(true);
     try {
-      // Load ALL active class schedules from the database
-      console.log('Loading all active class schedules for ScheduleView...');
+      // Load only FUTURE class schedules from the database
+      console.log('Loading future class schedules for ScheduleView...');
       
-      // Use a wide date range to get all active schedules
-      const startDate = '2020-01-01'; // Far back date
+      // Only get classes from today onwards
+      const today = new Date().toISOString().split('T')[0];
       const endDate = '2030-12-31';   // Far future date
       
-      const result = await scheduleService.getScheduledClasses(startDate, endDate);
+      const result = await scheduleService.getScheduledClasses(today, endDate);
       
       if (result.error) {
         console.error('Error loading scheduled classes:', result.error);
@@ -124,7 +124,7 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
         status: schedule.status
       }));
       
-      console.log('Loaded all active scheduled classes for ScheduleView:', transformedClasses.length, 'classes');
+      console.log('Loaded future scheduled classes for ScheduleView:', transformedClasses.length, 'classes');
       console.log('Sample classes:', transformedClasses.slice(0, 3).map(c => ({ date: c.scheduled_date, time: c.scheduled_time, class: c.class_name })));
       setScheduledClasses(transformedClasses);
     } catch (error) {
@@ -219,10 +219,10 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderClassCard = (schedule: ClassSchedule) => (
-    <View key={schedule.id} style={[styles.classCard, { backgroundColor: theme.colors.surface }]}>
+    <View key={schedule.id} style={[styles.classCard, { backgroundColor: '#333333' }]}>
       <View style={styles.classHeader}>
         <View style={styles.classTitleContainer}>
-          <Text style={[styles.classTitle, { color: theme.colors.text }]}>
+          <Text style={[styles.classTitle, { color: 'white' }]}>
             {schedule.class_name}
           </Text>
           <View style={[styles.difficultyBadge, { backgroundColor: getDifficultyColor(schedule.difficulty_level) }]}>
@@ -236,29 +236,29 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
       
       <View style={styles.classDetails}>
         <View style={styles.detailRow}>
-          <Ionicons name="time" size={16} color={theme.colors.textSecondary} />
-          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+          <Ionicons name="time" size={16} color="#B0B0B0" />
+          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
             {formatTime(schedule.scheduled_time)}
           </Text>
         </View>
         
         <View style={styles.detailRow}>
-          <Ionicons name="person" size={16} color={theme.colors.textSecondary} />
-          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+          <Ionicons name="person" size={16} color="#B0B0B0" />
+          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
             {schedule.trainer_name}
           </Text>
         </View>
         
         <View style={styles.detailRow}>
-          <Ionicons name={schedule.location === 'park' ? 'leaf' : 'business'} size={16} color={theme.colors.textSecondary} />
-          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+          <Ionicons name={schedule.location === 'park' ? 'leaf' : 'business'} size={16} color="#B0B0B0" />
+          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
             {schedule.location === 'park' ? 'Park' : 'Gym'}
           </Text>
         </View>
         
         <View style={styles.detailRow}>
-          <Ionicons name="people" size={16} color={theme.colors.textSecondary} />
-          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+          <Ionicons name="people" size={16} color="#B0B0B0" />
+          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
             {schedule.current_bookings}/{schedule.max_bookings === 999 ? '∞' : schedule.max_bookings} booked
           </Text>
         </View>
@@ -266,14 +266,14 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
       
       <View style={styles.classActions}>
         <TouchableOpacity 
-          style={[styles.actionButton, { backgroundColor: '#000000' }]}
+          style={[styles.actionButton, { backgroundColor: '#666666' }]}
           onPress={() => handleChangeClass(schedule.id)}
         >
           <Ionicons name="create" size={16} color="white" />
           <Text style={styles.actionText}>Change</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.actionButton, { backgroundColor: '#666666' }]}
+          style={[styles.actionButton, { backgroundColor: '#F44336' }]}
           onPress={() => handleRemoveClass(schedule.id)}
         >
           <Ionicons name="trash" size={16} color="white" />
@@ -285,8 +285,8 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
 
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.text} />
+      <View style={[styles.container, { backgroundColor: '#000000' }]}>
+        <ActivityIndicator size="large" color="white" />
       </View>
     );
   }
@@ -294,61 +294,61 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
   const classesForSelectedDate = getScheduledClassesForDate(selectedDate);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: '#000000' }]}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
+      <View style={[styles.header, { backgroundColor: '#000000' }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+        <Text style={[styles.headerTitle, { color: 'white' }]}>
           View Schedule
         </Text>
         <TouchableOpacity onPress={() => navigation.navigate('SelectDate')} style={styles.addButton}>
-          <Ionicons name="add" size={24} color={theme.colors.text} />
+          <Ionicons name="add" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
       {/* Date Selection */}
-      <View style={[styles.dateSection, { backgroundColor: theme.colors.surface }]}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+      <View style={[styles.dateSection, { backgroundColor: '#333333' }]}>
+        <Text style={[styles.sectionTitle, { color: 'white' }]}>
           Select Date to View Classes
         </Text>
         
         <TouchableOpacity
-          style={[styles.dateButton, { backgroundColor: theme.colors.background }]}
+          style={[styles.dateButton, { backgroundColor: '#000000' }]}
           onPress={() => setShowDateDropdown(true)}
         >
-          <Ionicons name="calendar" size={24} color={theme.colors.text} />
+          <Ionicons name="calendar" size={24} color="white" />
           <View style={styles.dateInfo}>
-            <Text style={[styles.dateText, { color: theme.colors.text }]}>
+            <Text style={[styles.dateText, { color: 'white' }]}>
               {formatDate(selectedDate)}
             </Text>
-            <Text style={[styles.dateShort, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.dateShort, { color: '#B0B0B0' }]}>
               {formatDateShort(selectedDate)}
             </Text>
           </View>
           <View style={styles.dateCount}>
-            <Text style={[styles.dateCountText, { color: theme.colors.text }]}>
+            <Text style={[styles.dateCountText, { color: 'white' }]}>
               {classesForSelectedDate.length}
             </Text>
-            <Text style={[styles.dateCountLabel, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.dateCountLabel, { color: '#B0B0B0' }]}>
               classes
             </Text>
           </View>
-          <Ionicons name="chevron-down" size={20} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-down" size={20} color="#B0B0B0" />
         </TouchableOpacity>
       </View>
 
       {/* Classes List */}
       <ScrollView style={styles.content}>
         {classesForSelectedDate.length === 0 ? (
-          <View style={[styles.emptyState, { backgroundColor: theme.colors.surface }]}>
-            <Ionicons name="calendar-outline" size={48} color={theme.colors.textSecondary} />
-            <Text style={[styles.emptyStateText, { color: theme.colors.textSecondary }]}>
+          <View style={[styles.emptyState, { backgroundColor: '#333333' }]}>
+            <Ionicons name="calendar-outline" size={48} color="#B0B0B0" />
+            <Text style={[styles.emptyStateText, { color: '#B0B0B0' }]}>
               No classes scheduled for this date
             </Text>
             <TouchableOpacity
-              style={[styles.emptyStateButton, { backgroundColor: '#000000' }]}
+              style={[styles.emptyStateButton, { backgroundColor: '#666666' }]}
               onPress={() => navigation.navigate('SelectDate')}
             >
               <Text style={styles.emptyStateButtonText}>Schedule a Class</Text>
@@ -369,13 +369,13 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
         onRequestClose={() => setShowDateDropdown(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.dateDropdownModal, { backgroundColor: theme.colors.surface }]}>
+          <View style={[styles.dateDropdownModal, { backgroundColor: '#333333' }]}>
             <View style={styles.dropdownHeader}>
-              <Text style={[styles.dropdownTitle, { color: theme.colors.text }]}>
+              <Text style={[styles.dropdownTitle, { color: 'white' }]}>
                 Select Date
               </Text>
               <TouchableOpacity onPress={() => setShowDateDropdown(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text} />
+                <Ionicons name="close" size={24} color="white" />
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.dropdownContent}>
@@ -391,7 +391,7 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
                       styles.dateOption,
                       { 
                         backgroundColor: isSelected ? '#000000' : 'transparent',
-                        borderBottomColor: theme.colors.border 
+                        borderBottomColor: '#666666' 
                       }
                     ]}
                     onPress={() => {
@@ -403,13 +403,13 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
                       <View style={styles.dateOptionMain}>
                         <Text style={[
                           styles.dateOptionText,
-                          { color: isSelected ? 'white' : theme.colors.text }
+                          { color: isSelected ? 'white' : 'white' }
                         ]}>
                           {formatDate(date)}
                         </Text>
                         <Text style={[
                           styles.dateOptionSubtext,
-                          { color: isSelected ? '#CCCCCC' : theme.colors.textSecondary }
+                          { color: isSelected ? '#B0B0B0' : '#B0B0B0' }
                         ]}>
                           {formatDateShort(date)}
                           {isToday && ' • Today'}
@@ -418,13 +418,13 @@ const ScheduleViewScreen: React.FC<Props> = ({ navigation, route }) => {
                       <View style={styles.dateOptionCount}>
                         <Text style={[
                           styles.dateCountText,
-                          { color: isSelected ? 'white' : theme.colors.text }
+                          { color: isSelected ? 'white' : 'white' }
                         ]}>
                           {classesCount}
                         </Text>
                         <Text style={[
                           styles.dateCountLabel,
-                          { color: isSelected ? '#CCCCCC' : theme.colors.textSecondary }
+                          { color: isSelected ? '#B0B0B0' : '#B0B0B0' }
                         ]}>
                           classes
                         </Text>

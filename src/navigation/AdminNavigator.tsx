@@ -10,6 +10,9 @@ import AddUserScreen from '../screens/admin/AddUserScreen';
 import AddTrainerScreen from '../screens/admin/AddTrainerScreen';
 import AddMemberScreen from '../screens/admin/AddMemberScreen';
 import AddClassTemplateScreen from '../screens/admin/AddClassTemplateScreen';
+import MemberManagementScreen from '../screens/admin/MemberManagementScreen';
+import TrainerManagementScreen from '../screens/admin/TrainerManagementScreen';
+import ClassTemplateManagementScreen from '../screens/admin/ClassTemplateManagementScreen';
 import { User } from '../types';
 
 export type AdminStackParamList = {
@@ -21,6 +24,9 @@ export type AdminStackParamList = {
   AddTrainer: undefined;
   AddMember: undefined;
   AddClassTemplate: undefined;
+  MemberManagement: undefined;
+  TrainerManagement: undefined;
+  ClassTemplateManagement: undefined;
 };
 
 const Stack = createStackNavigator<AdminStackParamList>();
@@ -85,6 +91,21 @@ const AdminNavigator: React.FC<AdminNavigatorProps> = ({ user, onSignOut }) => {
           name="AddClassTemplate" 
           component={AddClassTemplateScreen}
           options={{ title: 'Add Class Template' }}
+        />
+        <Stack.Screen 
+          name="MemberManagement" 
+          component={MemberManagementScreen}
+          options={{ title: 'Manage Members' }}
+        />
+        <Stack.Screen 
+          name="TrainerManagement" 
+          component={TrainerManagementScreen}
+          options={{ title: 'Manage Trainers' }}
+        />
+        <Stack.Screen 
+          name="ClassTemplateManagement" 
+          component={ClassTemplateManagementScreen}
+          options={{ title: 'Manage Class Templates' }}
         />
       </Stack.Navigator>
     </AdminDataProvider>

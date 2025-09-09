@@ -151,7 +151,10 @@ const TrainerDashboardScreen: React.FC<Props> = ({ navigation, route, onSignOut 
           <Ionicons name="eye" size={16} color={theme.colors.primary} />
           <Text style={[styles.actionText, { color: theme.colors.primary }]}>View Details</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => navigation.navigate('ClassManagement', { trainerId })}
+        >
           <Ionicons name="list" size={16} color={theme.colors.primary} />
           <Text style={[styles.actionText, { color: theme.colors.primary }]}>Attendance</Text>
         </TouchableOpacity>

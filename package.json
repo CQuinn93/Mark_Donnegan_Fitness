@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "cleanup-classes": "node scripts/cleanup-old-classes.js",
+    "update-class-statuses": "node scripts/update-class-statuses.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

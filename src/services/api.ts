@@ -346,13 +346,28 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
     // Change password (for first-time login)
     async changePassword(newPassword: string): Promise<{ error: string | null }> {
       try {
+        console.log('Attempting to change password...');
+        
+        // First, check if we have a valid auth token
+        if (!authApi.defaults.headers.common['Authorization']) {
+          console.log('No auth token found, cannot change password');
+          return { error: 'Not authenticated. Please log in again.' };
+        }
+        
         const response = await authApi.put('/user', {
           password: newPassword
         });
         
+        console.log('Password changed successfully');
         return { error: null };
       } catch (error: any) {
         console.error('Error changing password:', error);
+        
+        // If we get a 403, it means the auth token is invalid
+        if (error.response?.status === 403) {
+          return { error: 'Authentication expired. Please log in again.' };
+        }
+        
         return { error: 'Failed to change password' };
       }
     },
@@ -386,6 +401,12 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
         return { hasTempPassword: false, error: null };
       } catch (error: any) {
         console.error('Error checking temp password:', error);
+        // If we get a 403 or any auth error, it means the user is not authenticated yet
+        // In this case, we'll assume they have a temp password if they're on the onboarding screen
+        if (error.response?.status === 403 || error.response?.status === 401) {
+          console.log('User not authenticated yet, assuming temp password for onboarding');
+          return { hasTempPassword: true, error: null };
+        }
         return { hasTempPassword: false, error: 'Failed to check password status' };
       }
     },
@@ -453,7 +474,8 @@ export const userService = {
             data: {
               first_name: userData.first_name,
               role: 'member',
-              access_code: accessCode
+              access_code: accessCode,
+              is_access_code: true
             }
           }
         };
@@ -680,6 +702,41 @@ export const userService = {
       return { user, error: null };
     } catch (error: any) {
       return { user: null, error: error.response?.data?.message || 'Failed to update profile' };
+    }
+  },
+
+  // Update user (admin function)
+  async updateUser(userId: string, data: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone?: string;
+    role?: 'member' | 'trainer' | 'admin';
+    trainer_code?: string;
+  }): Promise<{ user: User | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.patch(`/profiles?id=eq.${userId}`, data);
+      const user = response.data[0];
+      return { user, error: null };
+    } catch (error: any) {
+      return { user: null, error: error.response?.data?.message || 'Failed to update user' };
+    }
+  },
+
+  // Delete user (admin function)
+  async deleteUser(userId: string): Promise<{ error: string | null }> {
+    try {
+      // First delete the profile
+      await supabaseApi.delete(`/profiles?id=eq.${userId}`);
+      
+      // Note: We cannot delete the auth user through the API
+      // The auth user will remain in Supabase auth but without a profile
+      // This is a limitation of Supabase - auth users can only be deleted through the dashboard
+      
+      return { error: null };
+    } catch (error: any) {
+      console.error('Error deleting user:', error.response?.data || error.message);
+      return { error: error.response?.data?.message || 'Failed to delete user' };
     }
   },
 };

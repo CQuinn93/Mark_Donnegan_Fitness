@@ -8,6 +8,8 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  Image,
+  SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
@@ -32,44 +34,66 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
   const [phone, setPhone] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('');
+  
+  // Password visibility toggles
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     checkTempPassword();
   }, []);
 
   const checkTempPassword = async () => {
-    const result = await authService.checkTempPassword();
-    if (result.hasTempPassword) {
+    try {
+      const result = await authService.checkTempPassword();
+      if (result.hasTempPassword) {
+        setHasTempPassword(true);
+      }
+    } catch (error) {
+      console.log('Could not check temp password, assuming user needs to set password');
+      // If we can't check, assume they need to set a password
       setHasTempPassword(true);
     }
   };
 
   const handleSubmit = async () => {
     // Validation
-    if (!lastName || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all required fields');
+    if (!lastName) {
+      Alert.alert('Error', 'Please fill in your last name');
       return;
     }
 
-    if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
+    // Only validate passwords if they're provided
+    if (hasTempPassword && newPassword && confirmPassword) {
+      if (newPassword !== confirmPassword) {
+        Alert.alert('Error', 'Passwords do not match');
+        return;
+      }
 
-    if (newPassword.length < 8) {
-      Alert.alert('Error', 'Password must be at least 8 characters long');
-      return;
+      if (newPassword.length < 8) {
+        Alert.alert('Error', 'Password must be at least 8 characters long');
+        return;
+      }
     }
 
     setIsLoading(true);
 
     try {
-      // Change password if user has temp password
-      if (hasTempPassword) {
+      let passwordChanged = false;
+      
+      // Try to change password if user has temp password
+      if (hasTempPassword && newPassword && confirmPassword) {
         const passwordResult = await authService.changePassword(newPassword);
         if (passwordResult.error) {
-          Alert.alert('Error', passwordResult.error);
-          return;
+          console.log('Password change failed:', passwordResult.error);
+          // Don't block the flow if password change fails
+          Alert.alert(
+            'Password Change Failed', 
+            'Could not change password at this time. You can change it later in your profile settings.',
+            [{ text: 'Continue', onPress: () => {} }]
+          );
+        } else {
+          passwordChanged = true;
         }
       }
 
@@ -88,9 +112,13 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
 
+      const successMessage = passwordChanged 
+        ? 'Profile setup completed successfully! You can now use your new password to log in.'
+        : 'Profile setup completed successfully! You can change your password later in your profile settings.';
+
       Alert.alert(
         'Success', 
-        'Profile setup completed successfully! You can now use your new password to log in.',
+        successMessage,
         [
           { 
             text: 'OK', 
@@ -112,86 +140,109 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          Complete Your Profile
-        </Text>
-      </View>
-
-      {/* Welcome Message */}
-      <View style={[styles.welcomeBox, { backgroundColor: theme.colors.primary }]}>
-        <Text style={styles.welcomeText}>
-          Welcome to MD Fitness, {user.first_name}!
-        </Text>
-        <Text style={styles.welcomeSubtext}>
-          Let's complete your profile setup
-        </Text>
-      </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+      <ScrollView style={styles.scrollView}>
+        {/* Logo and Welcome Message */}
+        <View style={[styles.welcomeBox, { backgroundColor: '#F8F9FA' }]}>
+          <Image 
+            source={require('../../../assets/MDFitness_Logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Text style={styles.welcomeText}>
+            Welcome to Mark Donnegan Fitness, {user.first_name}!
+          </Text>
+          <Text style={styles.welcomeSubtext}>
+            Let's complete your profile setup
+          </Text>
+        </View>
 
       {/* Form */}
-      <View style={[styles.form, { backgroundColor: theme.colors.surface }]}>
+      <View style={[styles.form, { backgroundColor: '#FFFFFF' }]}>
         {/* Required Fields */}
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Required Information *</Text>
+        <Text style={[styles.sectionTitle, { color: '#000000' }]}>Required Information *</Text>
         
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
           placeholder="Last Name"
-          placeholderTextColor={theme.colors.textSecondary}
+          placeholderTextColor="#6C757D"
           value={lastName}
           onChangeText={setLastName}
         />
 
         {hasTempPassword && (
           <>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
-              placeholder="New Password"
-              placeholderTextColor={theme.colors.textSecondary}
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry
-            />
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
-              placeholder="Confirm New Password"
-              placeholderTextColor={theme.colors.textSecondary}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
+                placeholder="New Password"
+                placeholderTextColor="#6C757D"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry={!showNewPassword}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowNewPassword(!showNewPassword)}
+              >
+                <Ionicons 
+                  name={showNewPassword ? "eye-off" : "eye"} 
+                  size={20} 
+                  color="#6C757D" 
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
+                placeholder="Confirm New Password"
+                placeholderTextColor="#6C757D"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons 
+                  name={showConfirmPassword ? "eye-off" : "eye"} 
+                  size={20} 
+                  color="#6C757D" 
+                />
+              </TouchableOpacity>
+            </View>
           </>
         )}
 
         {/* Optional Personal Information */}
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Personal Information (Optional)</Text>
+        <Text style={[styles.sectionTitle, { color: '#000000' }]}>Personal Information (Optional)</Text>
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
           placeholder="Phone Number"
-          placeholderTextColor={theme.colors.textSecondary}
+          placeholderTextColor="#6C757D"
           value={phone}
           onChangeText={setPhone}
           keyboardType="phone-pad"
         />
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
           placeholder="Date of Birth (YYYY-MM-DD)"
-          placeholderTextColor={theme.colors.textSecondary}
+          placeholderTextColor="#6C757D"
           value={dateOfBirth}
           onChangeText={setDateOfBirth}
         />
         <TextInput
-          style={[styles.input, { backgroundColor: theme.colors.background, color: theme.colors.text }]}
+          style={[styles.input, { backgroundColor: '#F8F9FA', color: '#000000' }]}
           placeholder="Gender (male/female/other)"
-          placeholderTextColor={theme.colors.textSecondary}
+          placeholderTextColor="#6C757D"
           value={gender}
           onChangeText={(text) => setGender(text as 'male' | 'female' | 'other' | '')}
         />
 
         {/* Information Text */}
-        <View style={styles.infoBox}>
-          <Text style={[styles.infoText, { color: theme.colors.textSecondary }]}>
+        <View style={[styles.infoBox, { backgroundColor: '#F8F9FA' }]}>
+          <Text style={[styles.infoText, { color: '#6C757D' }]}>
             {hasTempPassword 
               ? 'Please set a new password and complete your profile information. You can skip optional fields and complete them later.'
               : 'Please complete your profile information. You can skip optional fields and complete them later.'
@@ -201,7 +252,7 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
 
         {/* Submit Button */}
         <TouchableOpacity
-          style={[styles.submitButton, { backgroundColor: theme.colors.primary }]}
+          style={[styles.submitButton, { backgroundColor: '#6C757D' }]}
           onPress={handleSubmit}
           disabled={isLoading}
         >
@@ -217,7 +268,8 @@ const FirstTimeSetupScreen: React.FC<Props> = ({ navigation, route }) => {
           )}
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -225,15 +277,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    padding: 16,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  scrollView: {
+    flex: 1,
   },
   welcomeBox: {
     margin: 16,
@@ -241,18 +286,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
+  logo: {
+    width: 160,
+    height: 80,
+    marginBottom: 12,
+  },
   welcomeText: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: 'white',
+    color: '#000000',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   welcomeSubtext: {
-    fontSize: 16,
-    color: 'white',
+    fontSize: 14,
+    color: '#6C757D',
     textAlign: 'center',
-    opacity: 0.9,
   },
   form: {
     margin: 16,
@@ -267,14 +316,24 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#DEE2E6',
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
     fontSize: 16,
+    flex: 1,
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    padding: 4,
   },
   infoBox: {
-    backgroundColor: '#f5f5f5',
     padding: 16,
     borderRadius: 8,
     marginTop: 20,
