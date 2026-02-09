@@ -187,7 +187,8 @@ export type RootStackParamList = {
   Main: undefined;
   Admin: { user: User };
   Trainer: { user: User };
-  FirstTimeSetup: { user: User };
+  FirstTimeSetup: { user: User; onComplete?: (updatedUser?: User) => void };
+  Welcome: { user: User; onComplete: () => void };
 };
 
 export type MainTabParamList = {

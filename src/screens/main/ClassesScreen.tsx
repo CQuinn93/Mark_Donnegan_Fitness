@@ -1,49 +1,67 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import theme from '../../theme';
+import { useTheme } from '../../theme/ThemeContext';
 
 const ClassesScreen: React.FC = () => {
+  const { theme } = useTheme();
+
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Ionicons name="calendar-outline" size={80} color={theme.colors.primary} />
-        <Text style={styles.title}>Classes</Text>
-        <Text style={styles.subtitle}>Coming soon...</Text>
-        <Text style={styles.description}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['bottom']}>
+      <View style={[styles.content, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View style={[styles.iconContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="calendar-outline" size={48} color={theme.colors.primary} />
+        </View>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Classes</Text>
+        <View style={[styles.badge, { backgroundColor: theme.colors.primary }]}>
+          <Text style={styles.badgeText}>Coming soon</Text>
+        </View>
+        <Text style={[styles.description, { color: theme.colors.textSecondary }]}>
           Browse and book fitness classes, view schedules, and manage your bookings.
         </Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
+    margin: 24,
+    padding: 24,
+    borderRadius: 12,
+    borderWidth: 1,
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
+  },
+  iconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: theme.colors.text,
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.sm,
+    marginBottom: 12,
   },
-  subtitle: {
-    fontSize: 18,
-    color: theme.colors.primary,
-    marginBottom: theme.spacing.lg,
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  badgeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   description: {
     fontSize: 16,
-    color: theme.colors.textSecondary,
     textAlign: 'center',
     lineHeight: 24,
   },

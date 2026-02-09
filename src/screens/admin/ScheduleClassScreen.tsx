@@ -57,7 +57,13 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   const [scheduledTimes, setScheduledTimes] = useState<string[]>([]);
   
   // Step-by-step selection state
-  const [currentStep, setCurrentStep] = useState<'class' | 'time' | 'location' | 'trainer' | 'conflicts' | 'details'>('class');
+  const [currentStep, setCurrentStep] = useState<'class' | 'time' | 'location' | 'trainer' | 'conflicts' | 'recurrence' | 'details'>('class');
+  
+  // Recurrence state
+  const [recurrenceType, setRecurrenceType] = useState<'single' | 'weekly' | 'custom'>('single');
+  const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([]); // 0 = Sunday, 1 = Monday, etc.
+  const [customDates, setCustomDates] = useState<Date[]>([]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   
   // UI state
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -326,7 +332,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
     setCurrentStep('conflicts');
   };
 
-  const goBackToStep = (step: 'class' | 'time' | 'location' | 'trainer' | 'conflicts' | 'details') => {
+  const goBackToStep = (step: 'class' | 'time' | 'location' | 'trainer' | 'conflicts' | 'recurrence' | 'details') => {
     setCurrentStep(step);
   };
 
@@ -426,54 +432,147 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   // Handle continue after conflict check
   const handleContinueAfterConflicts = () => {
     if (conflictCheckResult && !conflictCheckResult.hasConflicts) {
-      setCurrentStep('details');
+      setCurrentStep('recurrence');
     } else {
       Alert.alert('Conflicts Found', 'Please resolve the conflicts before continuing.');
     }
   };
 
-  // Step indicator component
+  // Generate dates based on recurrence type
+  const generateRecurrenceDates = (): string[] => {
+    if (!selectedDate) return [];
+    
+    const baseDate = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    const dates: string[] = [];
+    
+    switch (recurrenceType) {
+      case 'single':
+        // Just the selected date
+        dates.push(baseDate.toISOString().split('T')[0]);
+        break;
+        
+      case 'weekly':
+        // For the next 3 weeks on selected days
+        if (selectedDaysOfWeek.length === 0) {
+          // If no days selected, just use the base date
+          dates.push(baseDate.toISOString().split('T')[0]);
+          break;
+        }
+        
+        for (let week = 0; week < 3; week++) {
+          selectedDaysOfWeek.forEach(dayOfWeek => {
+            const date = new Date(baseDate);
+            // Get the day of week of the base date (0 = Sunday, 1 = Monday, etc.)
+            const baseDayOfWeek = date.getDay();
+            // Calculate days to add
+            let daysToAdd = dayOfWeek - baseDayOfWeek;
+            // If the target day is earlier in the week, add 7 days to get to next week
+            if (daysToAdd < 0) daysToAdd += 7;
+            // Add weeks and days
+            date.setDate(date.getDate() + (week * 7) + daysToAdd);
+            const dateString = date.toISOString().split('T')[0];
+            // Only add future dates (including today)
+            if (date >= new Date(new Date().setHours(0, 0, 0, 0))) {
+              dates.push(dateString);
+            }
+          });
+        }
+        // Remove duplicates and sort
+        return [...new Set(dates)].sort();
+        
+      case 'custom':
+        // Use custom selected dates
+        return customDates
+          .map(date => date.toISOString().split('T')[0])
+          .filter(date => date >= new Date().toISOString().split('T')[0])
+          .sort();
+        
+      default:
+        dates.push(baseDate.toISOString().split('T')[0]);
+    }
+    
+    return dates;
+  };
+
+  // Step indicator component - Compact version
   const renderStepIndicator = () => {
     const steps = [
-      { key: 'class', label: 'Class', icon: '📚' },
-      { key: 'time', label: 'Time', icon: '⏰' },
-      { key: 'location', label: 'Location', icon: '📍' },
-      { key: 'trainer', label: 'Trainer', icon: '👨‍🏫' },
-      { key: 'conflicts', label: 'Conflicts', icon: '⚠️' },
-      { key: 'details', label: 'Details', icon: '⚙️' }
+      { key: 'class', label: 'Class', shortLabel: 'Class' },
+      { key: 'time', label: 'Time', shortLabel: 'Time' },
+      { key: 'location', label: 'Location', shortLabel: 'Location' },
+      { key: 'trainer', label: 'Trainer', shortLabel: 'Trainer' },
+      { key: 'conflicts', label: 'Conflicts', shortLabel: 'Conflicts' },
+      { key: 'recurrence', label: 'Recurrence', shortLabel: 'Recurrence' },
+      { key: 'details', label: 'Details', shortLabel: 'Details' }
     ];
 
+    const currentIndex = steps.findIndex(s => s.key === currentStep);
+    const currentStepInfo = steps[currentIndex];
+    const progress = ((currentIndex + 1) / steps.length) * 100;
+
     return (
-      <View style={styles.stepIndicator}>
-        {steps.map((step, index) => {
-          const isActive = currentStep === step.key;
-          const isCompleted = steps.findIndex(s => s.key === currentStep) > index;
-          
-          return (
-            <View key={step.key} style={styles.stepItem}>
-              <View style={[
-                styles.stepCircle,
-                isActive && styles.stepCircleActive,
-                isCompleted && styles.stepCircleCompleted
-              ]}>
-                <Text style={[
-                  styles.stepIcon,
-                  isActive && styles.stepIconActive,
-                  isCompleted && styles.stepIconCompleted
-                ]}>
-                  {step.icon}
-                </Text>
-              </View>
-              <Text style={[
-                styles.stepLabel,
-                isActive && styles.stepLabelActive,
-                isCompleted && styles.stepLabelCompleted
-              ]}>
-                {step.label}
-              </Text>
-      </View>
-    );
-        })}
+      <View style={[styles.stepIndicatorCompact, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        {/* Progress Bar */}
+        <View style={styles.progressBarContainer}>
+          <View style={[styles.progressBarBackground, { backgroundColor: theme.colors.border }]}>
+            <View 
+              style={[
+                styles.progressBarFill, 
+                { 
+                  width: `${progress}%`,
+                  backgroundColor: theme.colors.primary 
+                }
+              ]} 
+            />
+          </View>
+          <Text style={[styles.progressText, { color: theme.colors.textSecondary }]}>
+            Step {currentIndex + 1} of {steps.length}
+          </Text>
+        </View>
+
+        {/* Current Step Name */}
+        <View style={styles.currentStepContainer}>
+          <Text style={[styles.currentStepLabel, { color: theme.colors.text }]}>
+            {currentStepInfo?.label || 'Schedule Class'}
+          </Text>
+        </View>
+
+        {/* Step Dots - Compact */}
+        <View style={styles.stepDotsContainer}>
+          {steps.map((step, index) => {
+            const isActive = currentStep === step.key;
+            const isCompleted = index < currentIndex;
+            
+            return (
+              <React.Fragment key={step.key}>
+                <View 
+                  style={[
+                    styles.stepDot,
+                    {
+                      backgroundColor: isActive 
+                        ? theme.colors.primary 
+                        : isCompleted 
+                        ? theme.colors.success 
+                        : theme.colors.border,
+                      width: isActive ? 10 : 8,
+                      height: isActive ? 10 : 8,
+                    }
+                  ]} 
+                />
+                {index < steps.length - 1 && (
+                  <View 
+                    style={[
+                      styles.stepDotConnector,
+                      { 
+                        backgroundColor: isCompleted ? theme.colors.success : theme.colors.border,
+                      }
+                    ]} 
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </View>
       </View>
     );
   };
@@ -481,18 +580,18 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   // Step components
   const renderClassSelectionStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Select Class</Text>
-      <Text style={styles.stepDescription}>Choose the class you want to schedule</Text>
+      <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Select Class</Text>
+      <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Choose the class you want to schedule</Text>
       
       <View style={styles.classList}>
         {classes.map((classItem) => (
           <TouchableOpacity
             key={classItem.id}
-            style={styles.classListItem}
+            style={[styles.classListItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
             onPress={() => handleClassSelected(classItem)}
           >
-            <Text style={styles.className}>{classItem.name}</Text>
-            <Ionicons name="chevron-forward" size={20} color="#666" />
+            <Text style={[styles.className, { color: theme.colors.text }]}>{classItem.name}</Text>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         ))}
       </View>
@@ -502,24 +601,24 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderTimeSelectionStep = () => {
     return (
       <View style={styles.stepContainer}>
-        <Text style={styles.stepTitle}>Select Time</Text>
-        <Text style={styles.stepDescription}>Choose when the class will be held</Text>
+        <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Select Time</Text>
+        <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Choose when the class will be held</Text>
         
         {/* Time selection mode tabs */}
-        <View style={styles.timeModeTabs}>
+        <View style={[styles.timeModeTabs, { backgroundColor: theme.colors.surface }]}>
           <TouchableOpacity
-            style={[styles.timeModeTab, timeSelectionMode === 'preset' && { backgroundColor: '#000000' }]}
+            style={[styles.timeModeTab, timeSelectionMode === 'preset' && { backgroundColor: theme.colors.primary }]}
             onPress={() => setTimeSelectionMode('preset')}
           >
-            <Text style={[styles.timeModeTabText, timeSelectionMode === 'preset' && { color: 'white' }]}>
+            <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'preset' ? theme.colors.background : theme.colors.text }]}>
               Preset Times
             </Text>
         </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.timeModeTab, timeSelectionMode === 'custom' && { backgroundColor: '#000000' }]}
+            style={[styles.timeModeTab, timeSelectionMode === 'custom' && { backgroundColor: theme.colors.primary }]}
             onPress={() => setTimeSelectionMode('custom')}
           >
-            <Text style={[styles.timeModeTabText, timeSelectionMode === 'custom' && { color: 'white' }]}>
+            <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'custom' ? theme.colors.background : theme.colors.text }]}>
               Custom Time
         </Text>
         </TouchableOpacity>
@@ -535,13 +634,16 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
                   key={time.value}
               style={[
                     styles.presetTimeButton,
-                    isSelected && { backgroundColor: '#000000', borderColor: '#000000' }
+                    { 
+                      backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
+                      borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                    }
                   ]}
                   onPress={() => handleTimeSelected(time.value)}
             >
               <Text style={[
                     styles.presetTimeText,
-                    isSelected && { color: 'white' }
+                    { color: isSelected ? theme.colors.background : theme.colors.text }
               ]}>
                     {time.label}
               </Text>
@@ -552,13 +654,13 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
         ) : (
           <View style={styles.customTimeContainer}>
             <TouchableOpacity
-              style={styles.customTimeButton}
+              style={[styles.customTimeButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
               onPress={() => setShowTimePicker(true)}
             >
-              <Text style={styles.customTimeText}>
+              <Text style={[styles.customTimeText, { color: theme.colors.text }]}>
                 {`${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`}
                   </Text>
-              <Text style={styles.customTimeLabel}>Tap to set custom time</Text>
+              <Text style={[styles.customTimeLabel, { color: theme.colors.textSecondary }]}>Tap to set custom time</Text>
             </TouchableOpacity>
                 </View>
               )}
@@ -569,8 +671,8 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderLocationSelectionStep = () => {
     return (
       <View style={styles.stepContainer}>
-        <Text style={styles.stepTitle}>Select Location</Text>
-        <Text style={styles.stepDescription}>Choose where the class will be held</Text>
+        <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Select Location</Text>
+        <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Choose where the class will be held</Text>
         
         <View style={styles.locationGrid}>
           {['gym', 'park'].map((location) => {
@@ -581,13 +683,16 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
                 key={location}
                 style={[
                   styles.locationCard,
-                  isSelected && styles.locationCardSelected
+                  { 
+                    backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
+                    borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                  }
                 ]}
                 onPress={() => handleLocationSelected(location)}
               >
                 <Text style={[
                   styles.locationName,
-                  isSelected && styles.locationNameSelected
+                  { color: isSelected ? theme.colors.background : theme.colors.text }
                 ]}>
                   {location.charAt(0).toUpperCase() + location.slice(1)}
               </Text>
@@ -602,8 +707,8 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderTrainerSelectionStep = () => {
     return (
       <View style={styles.stepContainer}>
-        <Text style={styles.stepTitle}>Select Trainer</Text>
-        <Text style={styles.stepDescription}>Choose who will teach the class</Text>
+        <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Select Trainer</Text>
+        <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Choose who will teach the class</Text>
         
         <View style={styles.trainerGrid}>
           {trainers.map((trainer) => {
@@ -614,13 +719,16 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
                 key={trainer.id}
                 style={[
                   styles.trainerCard,
-                  isSelected && styles.trainerCardSelected
+                  { 
+                    backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
+                    borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                  }
                 ]}
                 onPress={() => handleTrainerSelected(trainer)}
                 >
                   <Text style={[
                   styles.trainerName,
-                  isSelected && styles.trainerNameSelected
+                  { color: isSelected ? theme.colors.background : theme.colors.text }
                   ]}>
                   {trainer.first_name} {trainer.last_name}
                   </Text>
@@ -634,17 +742,17 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const renderConflictsStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Check for Conflicts</Text>
-      <Text style={styles.stepDescription}>Verify that your selections don't conflict with existing schedules</Text>
+      <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Check for Conflicts</Text>
+      <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Verify that your selections don't conflict with existing schedules</Text>
       
-      <View style={styles.conflictsSummary}>
+      <View style={[styles.conflictsSummary, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity
           style={styles.detailRow}
           onPress={() => setCurrentStep('class')}
         >
           <Text style={styles.detailLabel}>Class:</Text>
           <Text style={styles.detailValue}>{selectedClass?.name}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -653,7 +761,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
         >
           <Text style={styles.detailLabel}>Time:</Text>
           <Text style={styles.detailValue}>{getCurrentTimeValue()}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -662,7 +770,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
         >
           <Text style={styles.detailLabel}>Location:</Text>
           <Text style={styles.detailValue}>{selectedLocation.charAt(0).toUpperCase() + selectedLocation.slice(1)}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -671,21 +779,21 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
         >
           <Text style={styles.detailLabel}>Trainer:</Text>
           <Text style={styles.detailValue}>{selectedTrainer?.first_name} {selectedTrainer?.last_name}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity
-        style={[styles.checkConflictsButton, { backgroundColor: '#000000' }]}
+        style={[styles.checkConflictsButton, { backgroundColor: theme.colors.primary }]}
         onPress={handleCheckConflicts}
         disabled={checkingConflicts}
       >
         {checkingConflicts ? (
-          <ActivityIndicator color="white" />
+          <ActivityIndicator color={theme.colors.background} />
         ) : (
           <>
-            <Ionicons name="search" size={20} color="white" />
-            <Text style={styles.checkConflictsText}>Check for Conflicts</Text>
+            <Ionicons name="search" size={20} color={theme.colors.background} />
+            <Text style={[styles.checkConflictsText, { color: theme.colors.background }]}>Check for Conflicts</Text>
           </>
         )}
       </TouchableOpacity>
@@ -698,19 +806,19 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
           {conflictCheckResult.hasConflicts ? (
             <View>
               <View style={styles.conflictHeader}>
-                <Ionicons name="warning" size={20} color="#FF6B6B" />
-                <Text style={[styles.conflictTitle, { color: '#FF6B6B' }]}>Conflicts Found</Text>
+                <Ionicons name="warning" size={20} color={theme.colors.error} />
+                <Text style={[styles.conflictTitle, { color: theme.colors.error }]}>Conflicts Found</Text>
               </View>
               {conflictCheckResult.conflicts.map((conflict, index) => (
-                <Text key={index} style={[styles.conflictText, { color: '#FF6B6B' }]}>
+                <Text key={index} style={[styles.conflictText, { color: theme.colors.error }]}>
                   • {conflict}
                 </Text>
               ))}
             </View>
           ) : (
             <View style={styles.conflictHeader}>
-              <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-              <Text style={[styles.conflictTitle, { color: '#4CAF50' }]}>No Conflicts Found</Text>
+              <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+              <Text style={[styles.conflictTitle, { color: theme.colors.success }]}>No Conflicts Found</Text>
             </View>
           )}
         </View>
@@ -718,56 +826,323 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
 
       {conflictCheckResult && !conflictCheckResult.hasConflicts && (
         <TouchableOpacity
-          style={[styles.continueButtonConflicts, { backgroundColor: '#4CAF50' }]}
+          style={[styles.continueButtonConflicts, { backgroundColor: theme.colors.success }]}
           onPress={handleContinueAfterConflicts}
         >
-          <Ionicons name="arrow-forward" size={20} color="white" />
-          <Text style={styles.continueButtonText}>Continue to Details</Text>
+          <Ionicons name="arrow-forward" size={20} color={theme.colors.background} />
+          <Text style={[styles.continueButtonText, { color: theme.colors.background }]}>Continue to Recurrence</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 
+  const renderRecurrenceStep = () => {
+    const daysOfWeek = [
+      { label: 'Sun', value: 0 },
+      { label: 'Mon', value: 1 },
+      { label: 'Tue', value: 2 },
+      { label: 'Wed', value: 3 },
+      { label: 'Thu', value: 4 },
+      { label: 'Fri', value: 5 },
+      { label: 'Sat', value: 6 },
+    ];
+
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    };
+
+    const addCustomDate = () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      setCustomDates([...customDates, today]);
+    };
+
+    const removeCustomDate = (index: number) => {
+      setCustomDates(customDates.filter((_, i) => i !== index));
+    };
+
+    const previewDates = generateRecurrenceDates();
+
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Recurrence Options</Text>
+        <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>
+          Choose how often this class should be scheduled
+        </Text>
+
+        {/* Recurrence Type Selection */}
+        <View style={styles.recurrenceTypeContainer}>
+          <TouchableOpacity
+            style={[
+              styles.recurrenceTypeCard,
+              {
+                backgroundColor: recurrenceType === 'single' ? theme.colors.primary : theme.colors.surface,
+                borderColor: recurrenceType === 'single' ? theme.colors.primary : theme.colors.border
+              }
+            ]}
+            onPress={() => setRecurrenceType('single')}
+          >
+            <Ionicons 
+              name="calendar-outline" 
+              size={24} 
+              color={recurrenceType === 'single' ? theme.colors.background : theme.colors.text} 
+            />
+            <Text style={[
+              styles.recurrenceTypeLabel,
+              { color: recurrenceType === 'single' ? theme.colors.background : theme.colors.text }
+            ]}>
+              Single Day
+            </Text>
+            <Text style={[
+              styles.recurrenceTypeDescription,
+              { color: recurrenceType === 'single' ? theme.colors.textSecondary : theme.colors.textSecondary }
+            ]}>
+              Just for this day
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.recurrenceTypeCard,
+              {
+                backgroundColor: recurrenceType === 'weekly' ? theme.colors.primary : theme.colors.surface,
+                borderColor: recurrenceType === 'weekly' ? theme.colors.primary : theme.colors.border
+              }
+            ]}
+            onPress={() => setRecurrenceType('weekly')}
+          >
+            <Ionicons 
+              name="repeat-outline" 
+              size={24} 
+              color={recurrenceType === 'weekly' ? theme.colors.background : theme.colors.text} 
+            />
+            <Text style={[
+              styles.recurrenceTypeLabel,
+              { color: recurrenceType === 'weekly' ? theme.colors.background : theme.colors.text }
+            ]}>
+              Weekly (3 weeks)
+            </Text>
+            <Text style={[
+              styles.recurrenceTypeDescription,
+              { color: recurrenceType === 'weekly' ? theme.colors.textSecondary : theme.colors.textSecondary }
+            ]}>
+              Repeat weekly for 3 weeks
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.recurrenceTypeCard,
+              {
+                backgroundColor: recurrenceType === 'custom' ? theme.colors.primary : theme.colors.surface,
+                borderColor: recurrenceType === 'custom' ? theme.colors.primary : theme.colors.border
+              }
+            ]}
+            onPress={() => setRecurrenceType('custom')}
+          >
+            <Ionicons 
+              name="calendar" 
+              size={24} 
+              color={recurrenceType === 'custom' ? theme.colors.background : theme.colors.text} 
+            />
+            <Text style={[
+              styles.recurrenceTypeLabel,
+              { color: recurrenceType === 'custom' ? theme.colors.background : theme.colors.text }
+            ]}>
+              Custom Dates
+            </Text>
+            <Text style={[
+              styles.recurrenceTypeDescription,
+              { color: recurrenceType === 'custom' ? theme.colors.textSecondary : theme.colors.textSecondary }
+            ]}>
+              Select specific dates
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Weekly Day Selection */}
+        {recurrenceType === 'weekly' && (
+          <View style={styles.weeklyDaysContainer}>
+            <Text style={[styles.sectionSubtitle, { color: theme.colors.text }]}>
+              Select days of the week
+            </Text>
+            <View style={styles.daysOfWeekGrid}>
+              {daysOfWeek.map((day) => {
+                const isSelected = selectedDaysOfWeek.includes(day.value);
+                return (
+                  <TouchableOpacity
+                    key={day.value}
+                    style={[
+                      styles.dayOfWeekButton,
+                      {
+                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
+                        borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                      }
+                    ]}
+                    onPress={() => {
+                      if (isSelected) {
+                        setSelectedDaysOfWeek(selectedDaysOfWeek.filter(d => d !== day.value));
+                      } else {
+                        setSelectedDaysOfWeek([...selectedDaysOfWeek, day.value]);
+                      }
+                    }}
+                  >
+                    <Text style={[
+                      styles.dayOfWeekText,
+                      { color: isSelected ? theme.colors.background : theme.colors.text }
+                    ]}>
+                      {day.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* Custom Dates Selection */}
+        {recurrenceType === 'custom' && (
+          <View style={styles.customDatesContainer}>
+            <View style={styles.customDatesHeader}>
+              <Text style={[styles.sectionSubtitle, { color: theme.colors.text }]}>
+                Selected Dates
+              </Text>
+              <TouchableOpacity
+                style={[styles.addDateButton, { backgroundColor: theme.colors.primary }]}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="add" size={20} color={theme.colors.background} />
+                <Text style={[styles.addDateButtonText, { color: theme.colors.background }]}>Add Date</Text>
+              </TouchableOpacity>
+            </View>
+            {customDates.length === 0 ? (
+              <Text style={[styles.emptyDatesText, { color: theme.colors.textSecondary }]}>
+                No dates selected. Tap "Add Date" to select dates.
+              </Text>
+            ) : (
+              <View style={styles.customDatesList}>
+                {customDates.map((date, index) => (
+                  <View
+                    key={index}
+                    style={[styles.customDateItem, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                  >
+                    <Text style={[styles.customDateText, { color: theme.colors.text }]}>
+                      {formatDate(date)}
+                    </Text>
+                    <TouchableOpacity onPress={() => removeCustomDate(index)}>
+                      <Ionicons name="close-circle" size={20} color={theme.colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Preview */}
+        {previewDates.length > 0 && (
+          <View style={[styles.previewContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <Text style={[styles.previewTitle, { color: theme.colors.text }]}>
+              Preview: {previewDates.length} class{previewDates.length > 1 ? 'es' : ''} will be scheduled
+            </Text>
+            <ScrollView style={styles.previewDatesList} nestedScrollEnabled>
+              {previewDates.slice(0, 10).map((date, index) => (
+                <Text key={index} style={[styles.previewDateText, { color: theme.colors.textSecondary }]}>
+                  • {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+              ))}
+              {previewDates.length > 10 && (
+                <Text style={[styles.previewDateText, { color: theme.colors.textSecondary }]}>
+                  ... and {previewDates.length - 10} more
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Date Picker Modal for Custom Dates */}
+        <Modal
+          visible={showDatePicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowDatePicker(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.datePickerModal, { backgroundColor: theme.colors.surface }]}>
+              <View style={[styles.datePickerHeader, { borderBottomColor: theme.colors.border }]}>
+                <Text style={[styles.datePickerTitle, { color: theme.colors.text }]}>Select Date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Ionicons name="close" size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.datePickerContent}>
+                <Text style={[styles.datePickerHint, { color: theme.colors.textSecondary }]}>
+                  Date picker would go here. For now, adding today's date.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.datePickerConfirmButton, { backgroundColor: theme.colors.primary }]}
+                  onPress={() => {
+                    addCustomDate();
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={[styles.datePickerConfirmText, { color: theme.colors.background }]}>
+                    Add Today's Date
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    );
+  };
+
   const renderDetailsStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Final Details</Text>
-      <Text style={styles.stepDescription}>Review and complete the class details</Text>
+      <Text style={[styles.stepTitle, { color: theme.colors.text }]}>Final Details</Text>
+      <Text style={[styles.stepDescription, { color: theme.colors.textSecondary }]}>Review and complete the class details</Text>
       
-      <View style={styles.detailsSummary}>
+      <View style={[styles.detailsSummary, { backgroundColor: theme.colors.surface }]}>
                       <TouchableOpacity
-          style={styles.detailRow}
+          style={[styles.detailRow, { backgroundColor: theme.colors.background }]}
           onPress={() => setCurrentStep('class')}
         >
-          <Text style={styles.detailLabel}>Class:</Text>
-          <Text style={styles.detailValue}>{selectedClass?.name}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Class:</Text>
+          <Text style={[styles.detailValue, { color: theme.colors.text }]}>{selectedClass?.name}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.detailRow}
+          style={[styles.detailRow, { backgroundColor: theme.colors.background }]}
           onPress={() => setCurrentStep('time')}
         >
-          <Text style={styles.detailLabel}>Time:</Text>
-          <Text style={styles.detailValue}>{getCurrentTimeValue()}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Time:</Text>
+          <Text style={[styles.detailValue, { color: theme.colors.text }]}>{getCurrentTimeValue()}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.detailRow}
+          style={[styles.detailRow, { backgroundColor: theme.colors.background }]}
           onPress={() => setCurrentStep('location')}
         >
-          <Text style={styles.detailLabel}>Location:</Text>
-          <Text style={styles.detailValue}>{selectedLocation.charAt(0).toUpperCase() + selectedLocation.slice(1)}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Location:</Text>
+          <Text style={[styles.detailValue, { color: theme.colors.text }]}>{selectedLocation.charAt(0).toUpperCase() + selectedLocation.slice(1)}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.detailRow}
+          style={[styles.detailRow, { backgroundColor: theme.colors.background }]}
           onPress={() => setCurrentStep('trainer')}
         >
-          <Text style={styles.detailLabel}>Trainer:</Text>
-          <Text style={styles.detailValue}>{selectedTrainer?.first_name} {selectedTrainer?.last_name}</Text>
-          <Ionicons name="chevron-forward" size={16} color="#666" />
+          <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Trainer:</Text>
+          <Text style={[styles.detailValue, { color: theme.colors.text }]}>{selectedTrainer?.first_name} {selectedTrainer?.last_name}</Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -796,7 +1171,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   ) => (
     <View style={styles.formField}>
       <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>
-        {label} {required && <Text style={{ color: '#FF0000' }}>*</Text>}
+        {label} {required && <Text style={{ color: theme.colors.error }}>*</Text>}
                 </Text>
                 <TouchableOpacity
         style={[styles.dropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
@@ -827,15 +1202,15 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
             style={[
               styles.selectorButton,
               { 
-                backgroundColor: selectedValue === option.value ? '#000000' : '#F5F5F5',
-                borderColor: selectedValue === option.value ? '#000000' : '#E0E0E0'
+                backgroundColor: selectedValue === option.value ? theme.colors.primary : theme.colors.surface,
+                borderColor: selectedValue === option.value ? theme.colors.primary : theme.colors.border
               }
             ]}
             onPress={() => onSelect(option.value)}
                 >
                   <Text style={[
               styles.selectorText,
-              { color: selectedValue === option.value ? 'white' : theme.colors.text }
+              { color: selectedValue === option.value ? theme.colors.background : theme.colors.text }
                   ]}>
               {option.label}
                         </Text>
@@ -848,24 +1223,24 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderTimeSelection = () => (
     <View style={styles.formField}>
       <Text style={[styles.fieldLabel, { color: theme.colors.text }]}>
-        Time <Text style={{ color: '#FF0000' }}>*</Text>
+        Time <Text style={{ color: theme.colors.error }}>*</Text>
                   </Text>
       
       {/* Time Selection Mode Tabs */}
       <View style={[styles.timeModeTabs, { backgroundColor: theme.colors.surface }]}>
                       <TouchableOpacity
-          style={[styles.timeModeTab, timeSelectionMode === 'preset' && { backgroundColor: '#000000' }]}
+          style={[styles.timeModeTab, timeSelectionMode === 'preset' && { backgroundColor: theme.colors.primary }]}
           onPress={() => setTimeSelectionMode('preset')}
                       >
-          <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'preset' ? 'white' : theme.colors.text }]}>
+          <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'preset' ? theme.colors.background : theme.colors.text }]}>
             Preset Times
                           </Text>
                       </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.timeModeTab, timeSelectionMode === 'custom' && { backgroundColor: '#000000' }]}
+          style={[styles.timeModeTab, timeSelectionMode === 'custom' && { backgroundColor: theme.colors.primary }]}
           onPress={() => setTimeSelectionMode('custom')}
         >
-          <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'custom' ? 'white' : theme.colors.text }]}>
+          <Text style={[styles.timeModeTabText, { color: timeSelectionMode === 'custom' ? theme.colors.background : theme.colors.text }]}>
             Custom Time
                           </Text>
         </TouchableOpacity>
@@ -884,8 +1259,8 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
               style={[
                   styles.presetTimeButton,
                   { 
-                    backgroundColor: isSelected ? '#000000' : theme.colors.surface,
-                    borderColor: isScheduled ? '#FF6B6B' : theme.colors.border,
+                    backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
+                    borderColor: isScheduled ? theme.colors.error : (isSelected ? theme.colors.primary : theme.colors.border),
                     opacity: isScheduled ? 0.5 : 1
                   }
                 ]}
@@ -899,13 +1274,13 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
               <Text style={[
                   styles.presetTimeText,
                   { 
-                    color: isSelected ? 'white' : isScheduled ? '#FF6B6B' : theme.colors.text 
+                    color: isSelected ? theme.colors.background : isScheduled ? theme.colors.error : theme.colors.text 
                   }
                 ]}>
                   {time.label}
                           </Text>
                 {isScheduled && (
-                  <Ionicons name="close-circle" size={16} color="#FF6B6B" />
+                  <Ionicons name="close-circle" size={16} color={theme.colors.error} />
                 )}
               </TouchableOpacity>
             );
@@ -956,13 +1331,13 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
                     key={i}
                     style={[
                       styles.timeOption,
-                      { backgroundColor: selectedHour === i ? '#000000' : 'transparent' }
+                      { backgroundColor: selectedHour === i ? theme.colors.primary : 'transparent' }
                     ]}
                     onPress={() => setSelectedHour(i)}
                 >
                   <Text style={[
                       styles.timeOptionText,
-                      { color: selectedHour === i ? 'white' : theme.colors.text }
+                      { color: selectedHour === i ? theme.colors.background : theme.colors.text }
                   ]}>
                       {i % 12 || 12}
                 </Text>
@@ -979,13 +1354,13 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
                     key={i}
                 style={[
                       styles.timeOption,
-                      { backgroundColor: selectedMinute === i ? '#000000' : 'transparent' }
+                      { backgroundColor: selectedMinute === i ? theme.colors.primary : 'transparent' }
                     ]}
                     onPress={() => setSelectedMinute(i)}
                   >
                     <Text style={[
                       styles.timeOptionText,
-                      { color: selectedMinute === i ? 'white' : theme.colors.text }
+                      { color: selectedMinute === i ? theme.colors.background : theme.colors.text }
                     ]}>
                       {i.toString().padStart(2, '0')}
                         </Text>
@@ -996,10 +1371,10 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
               </View>
 
           <TouchableOpacity
-            style={[styles.timePickerDone, { backgroundColor: '#000000' }]}
+            style={[styles.timePickerDone, { backgroundColor: theme.colors.primary }]}
             onPress={() => setShowTimePicker(false)}
           >
-            <Text style={styles.timePickerDoneText}>Done</Text>
+            <Text style={[styles.timePickerDoneText, { color: theme.colors.background }]}>Done</Text>
           </TouchableOpacity>
           </View>
         </View>
@@ -1037,6 +1412,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
         {currentStep === 'location' && renderLocationSelectionStep()}
         {currentStep === 'trainer' && renderTrainerSelectionStep()}
         {currentStep === 'conflicts' && renderConflictsStep()}
+        {currentStep === 'recurrence' && renderRecurrenceStep()}
         {currentStep === 'details' && renderDetailsStep()}
 
         {/* Navigation Buttons */}
@@ -1045,7 +1421,7 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
             <TouchableOpacity
               style={[styles.navButton, { backgroundColor: theme.colors.surface }]}
               onPress={() => {
-                const steps = ['class', 'time', 'location', 'trainer', 'conflicts', 'details'];
+                const steps = ['class', 'time', 'location', 'trainer', 'conflicts', 'recurrence', 'details'];
                 const currentIndex = steps.indexOf(currentStep);
                 if (currentIndex > 0) {
                   setCurrentStep(steps[currentIndex - 1] as any);
@@ -1056,18 +1432,27 @@ const ScheduleClassScreen: React.FC<Props> = ({ navigation, route }) => {
             </TouchableOpacity>
           )}
           
+          {currentStep === 'recurrence' && (
+            <TouchableOpacity
+              style={[styles.navButton, { backgroundColor: theme.colors.primary }]}
+              onPress={() => setCurrentStep('details')}
+            >
+              <Text style={[styles.navButtonText, { color: theme.colors.background }]}>Continue</Text>
+            </TouchableOpacity>
+          )}
+          
           {currentStep === 'details' && (
             <TouchableOpacity
-              style={[styles.navButton, { backgroundColor: '#000000' }]}
+              style={[styles.navButton, { backgroundColor: theme.colors.primary }]}
               onPress={handleSave}
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="white" />
+                <ActivityIndicator color={theme.colors.background} />
               ) : (
                 <>
-                  <Ionicons name="checkmark" size={20} color="white" />
-                  <Text style={styles.saveButtonText}>Schedule Class</Text>
+                  <Ionicons name="checkmark" size={20} color={theme.colors.background} />
+                  <Text style={[styles.saveButtonText, { color: theme.colors.background }]}>Schedule Class</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -1354,54 +1739,52 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   
-  // Step-by-step styles
-  stepIndicator: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  // Step-by-step styles - Compact version
+  stepIndicatorCompact: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#f5f5f5',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
   },
-  stepItem: {
-    alignItems: 'center',
-    flex: 1,
+  progressBarContainer: {
+    marginBottom: 12,
   },
-  stepCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#e0e0e0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
+  progressBarBackground: {
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 6,
+    overflow: 'hidden',
   },
-  stepCircleActive: {
-    backgroundColor: '#000000',
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 2,
   },
-  stepCircleCompleted: {
-    backgroundColor: '#4CAF50',
-  },
-  stepIcon: {
-    fontSize: 16,
-  },
-  stepIconActive: {
-    color: 'white',
-  },
-  stepIconCompleted: {
-    color: 'white',
-  },
-  stepLabel: {
+  progressText: {
     fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
+    textAlign: 'right',
   },
-  stepLabelActive: {
-    color: '#000000',
+  currentStepContainer: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  currentStepLabel: {
+    fontSize: 16,
     fontWeight: '600',
   },
-  stepLabelCompleted: {
-    color: '#4CAF50',
-    fontWeight: '600',
+  stepDotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  stepDot: {
+    borderRadius: 5,
+    marginHorizontal: 2,
+  },
+  stepDotConnector: {
+    height: 2,
+    flex: 1,
+    maxWidth: 20,
+    marginHorizontal: 2,
   },
   
   // Step container styles
@@ -1680,6 +2063,144 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  
+  // Recurrence step styles
+  recurrenceTypeContainer: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  recurrenceTypeCard: {
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  recurrenceTypeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  recurrenceTypeDescription: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  weeklyDaysContainer: {
+    marginTop: 24,
+  },
+  sectionSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  daysOfWeekGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayOfWeekButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dayOfWeekText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  customDatesContainer: {
+    marginTop: 24,
+  },
+  customDatesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  addDateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+  },
+  addDateButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptyDatesText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 20,
+  },
+  customDatesList: {
+    gap: 8,
+  },
+  customDateItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  customDateText: {
+    fontSize: 14,
+  },
+  previewContainer: {
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  previewDatesList: {
+    maxHeight: 150,
+  },
+  previewDateText: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  datePickerModal: {
+    maxHeight: '50%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  datePickerContent: {
+    padding: 20,
+  },
+  datePickerHint: {
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  datePickerConfirmButton: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  datePickerConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

@@ -8,10 +8,11 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useAdminData } from '../../context/AdminDataContext';
 import { userService, testSupabaseConnection } from '../../services/api';
 
 interface Props {
@@ -21,6 +22,7 @@ interface Props {
 
 const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { addUser, addTrainer } = useAdminData();
   const { defaultRole = 'member' } = route.params || {};
   const [isLoading, setIsLoading] = useState(false);
   
@@ -64,6 +66,20 @@ const AddUserScreen: React.FC<Props> = ({ navigation, route }) => {
       if (result.error) {
         Alert.alert('Error', result.error);
         return;
+      }
+
+      // Add new user/trainer to cache immediately (no extra API call)
+      if (result.profile) {
+        addUser(result.profile);
+        if (role === 'trainer') {
+          addTrainer({
+            id: result.profile.id,
+            first_name: result.profile.first_name,
+            last_name: result.profile.last_name || '',
+            email: result.profile.email,
+            role: 'trainer',
+          });
+        }
       }
 
       // Show success message with appropriate details

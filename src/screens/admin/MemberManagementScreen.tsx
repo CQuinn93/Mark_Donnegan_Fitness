@@ -10,11 +10,12 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
-import { userService } from '../../services/api';
+import { useAdminData } from '../../context/AdminDataContext';
+import { userService, macroService } from '../../services/api';
 import { User } from '../../types';
 
 interface Props {
@@ -24,6 +25,7 @@ interface Props {
 
 const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { users: cachedUsers, refreshUsers } = useAdminData();
   const [members, setMembers] = useState<User[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,11 +39,22 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
     email: '',
     phone: '',
     role: 'member' as 'member' | 'trainer' | 'admin',
+    height_cm: '',
+    weight_kg: '',
+    fitness_goals: '' as '' | 'weight_loss' | 'maintain' | 'muscle_gain',
   });
 
   useEffect(() => {
     loadMembers();
   }, []);
+
+  // Reload members when cached users change
+  useEffect(() => {
+    if (cachedUsers && cachedUsers.length > 0) {
+      const memberUsers = cachedUsers.filter(user => user.role === 'member');
+      setMembers(memberUsers);
+    }
+  }, [cachedUsers]);
 
   useEffect(() => {
     filterMembers();
@@ -50,11 +63,16 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   const loadMembers = async () => {
     try {
       setLoading(true);
-      const response = await userService.getAllUsers();
-      if (response.users) {
+      // Use cached users from context instead of API call
+      if (cachedUsers && cachedUsers.length > 0) {
         // Filter to only show members (role = 'member')
-        const memberUsers = response.users.filter(user => user.role === 'member');
+        const memberUsers = cachedUsers.filter(user => user.role === 'member');
         setMembers(memberUsers);
+      } else {
+        // Fallback: refresh cache if empty
+        await refreshUsers();
+        // After refresh, the component will re-render with updated cachedUsers
+        // So we'll get the data on next render
       }
     } catch (error) {
       console.error('Error loading members:', error);
@@ -86,12 +104,18 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
 
   const handleEditMember = (member: User) => {
     setEditingMember(member);
+    const goal = member.fitness_goals && Array.isArray(member.fitness_goals) && member.fitness_goals.length > 0
+      ? member.fitness_goals[0] as 'weight_loss' | 'maintain' | 'muscle_gain'
+      : '';
     setEditForm({
       first_name: member.first_name,
       last_name: member.last_name,
       email: member.email,
       phone: member.phone || '',
       role: member.role as 'member' | 'trainer' | 'admin',
+      height_cm: member.height_cm != null ? String(member.height_cm) : '',
+      weight_kg: member.weight_kg != null ? String(member.weight_kg) : '',
+      fitness_goals: goal,
     });
     setEditModalVisible(true);
   };
@@ -125,8 +149,32 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   const handleSaveEdit = async () => {
     if (!editingMember) return;
 
+    const updateData: Record<string, any> = {
+      first_name: editForm.first_name,
+      last_name: editForm.last_name,
+      email: editForm.email,
+      phone: editForm.phone || undefined,
+      role: editForm.role,
+    };
+    const heightNum = editForm.height_cm ? parseInt(editForm.height_cm, 10) : undefined;
+    const weightNum = editForm.weight_kg ? parseFloat(editForm.weight_kg) : undefined;
+    if (heightNum && !isNaN(heightNum)) updateData.height_cm = heightNum;
+    if (weightNum && !isNaN(weightNum)) updateData.weight_kg = weightNum;
+    if (editForm.fitness_goals) updateData.fitness_goals = [editForm.fitness_goals];
+
     try {
-      await userService.updateUser(editingMember.id, editForm);
+      await userService.updateUser(editingMember.id, updateData);
+      if (editForm.fitness_goals || heightNum || weightNum) {
+        try {
+          if (weightNum && !isNaN(weightNum)) {
+            const today = new Date().toISOString().split('T')[0];
+            await macroService.addWeightEntry(editingMember.id, today, weightNum);
+          }
+          await macroService.recalculateBaseMacros(editingMember.id);
+        } catch (macroErr) {
+          console.error('Macro recalc (non-blocking):', macroErr);
+        }
+      }
       Alert.alert('Success', 'Member updated successfully');
       setEditModalVisible(false);
       setEditingMember(null);
@@ -142,48 +190,66 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const renderMemberCard = (member: User) => (
-    <View key={member.id} style={[styles.memberCard, { backgroundColor: '#333333' }]}>
+    <View key={member.id} style={[styles.memberCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
       <View style={styles.memberHeader}>
         <View style={styles.memberInfo}>
-          <Text style={[styles.memberName, { color: 'white' }]}>
+          <Text style={[styles.memberName, { color: theme.colors.text }]}>
             {member.first_name} {member.last_name}
           </Text>
-          <Text style={[styles.memberEmail, { color: '#B0B0B0' }]}>
+          <Text style={[styles.memberEmail, { color: theme.colors.textSecondary }]}>
             {member.email}
           </Text>
         </View>
         <View style={styles.memberActions}>
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#666666' }]}
+            style={[styles.actionButton, { backgroundColor: theme.colors.textSecondary }]}
             onPress={() => handleEditMember(member)}
           >
-            <Ionicons name="pencil" size={16} color="white" />
+            <Ionicons name="pencil" size={16} color={theme.colors.background} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: '#F44336' }]}
             onPress={() => handleDeleteMember(member)}
           >
-            <Ionicons name="trash" size={16} color="white" />
+            <Ionicons name="trash" size={16} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </View>
       
       <View style={styles.memberDetails}>
         <View style={styles.detailRow}>
-          <Ionicons name="call" size={16} color="#B0B0B0" />
-          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
+          <Ionicons name="call" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
             {member.phone || 'No phone number'}
           </Text>
         </View>
         <View style={styles.detailRow}>
-          <Ionicons name="calendar" size={16} color="#B0B0B0" />
-          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
+          <Ionicons name="resize" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+            Height: {member.height_cm != null ? `${member.height_cm} cm` : 'Not set'}
+          </Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Ionicons name="barbell" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+            Weight: {member.weight_kg != null ? `${member.weight_kg} kg` : 'Not set'}
+          </Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Ionicons name="flag" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
+            Goal: {member.fitness_goals?.[0] ? member.fitness_goals[0].replace('_', ' ') : 'Not set'}
+          </Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Ionicons name="calendar" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
             Joined: {formatDate(member.created_at)}
           </Text>
         </View>
         <View style={styles.detailRow}>
-          <Ionicons name="person" size={16} color="#B0B0B0" />
-          <Text style={[styles.detailText, { color: '#B0B0B0' }]}>
+          <Ionicons name="person" size={16} color={theme.colors.textSecondary} />
+          <Text style={[styles.detailText, { color: theme.colors.textSecondary }]}>
             Role: {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
           </Text>
         </View>
@@ -257,6 +323,54 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
           </View>
 
           <View style={styles.inputGroup}>
+            <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Height (cm)</Text>
+            <TextInput
+              style={[styles.textInput, { backgroundColor: theme.colors.surface, color: theme.colors.text }]}
+              value={editForm.height_cm}
+              onChangeText={(text) => setEditForm({ ...editForm, height_cm: text })}
+              placeholder="e.g. 175"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="number-pad"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Weight (kg)</Text>
+            <TextInput
+              style={[styles.textInput, { backgroundColor: theme.colors.surface, color: theme.colors.text }]}
+              value={editForm.weight_kg}
+              onChangeText={(text) => setEditForm({ ...editForm, weight_kg: text })}
+              placeholder="e.g. 70"
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="decimal-pad"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Fitness Goal</Text>
+            <View style={styles.roleSelector}>
+              {(['weight_loss', 'maintain', 'muscle_gain'] as const).map((goal) => (
+                <TouchableOpacity
+                  key={goal}
+                  style={[
+                    styles.roleOption,
+                    { backgroundColor: editForm.fitness_goals === goal ? theme.colors.primary : theme.colors.surface },
+                    { borderColor: theme.colors.border }
+                  ]}
+                  onPress={() => setEditForm({ ...editForm, fitness_goals: goal })}
+                >
+                  <Text style={[
+                    styles.roleOptionText,
+                    { color: editForm.fitness_goals === goal ? 'white' : theme.colors.text }
+                  ]}>
+                    {goal.replace('_', ' ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
             <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Role</Text>
             <View style={styles.roleSelector}>
               {(['member', 'trainer', 'admin'] as const).map((role) => (
@@ -293,25 +407,25 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#000000' }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: '#000000' }]}>
+      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="white" />
+          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: 'white' }]}>
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
           Manage Members ({members.length})
         </Text>
         <View style={styles.placeholder} />
       </View>
 
       {/* Search Bar */}
-      <View style={[styles.searchContainer, { backgroundColor: '#333333' }]}>
-        <Ionicons name="search" size={20} color="#B0B0B0" />
+      <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
         <TextInput
-          style={[styles.searchInput, { color: 'white' }]}
+          style={[styles.searchInput, { color: theme.colors.text }]}
           placeholder="Search members..."
-          placeholderTextColor="#B0B0B0"
+          placeholderTextColor={theme.colors.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
@@ -321,13 +435,17 @@ const MemberManagementScreen: React.FC<Props> = ({ navigation, route }) => {
       <ScrollView
         style={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh}
+            tintColor={theme.colors.text}
+          />
         }
       >
         {filteredMembers.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={64} color="#B0B0B0" />
-            <Text style={[styles.emptyText, { color: '#B0B0B0' }]}>
+            <Ionicons name="people-outline" size={64} color={theme.colors.textSecondary} />
+            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
               {searchQuery ? 'No members found matching your search' : 'No members found'}
             </Text>
           </View>
@@ -370,8 +488,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    marginHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   searchInput: {
     flex: 1,
@@ -385,6 +505,7 @@ const styles = StyleSheet.create({
   memberCard: {
     padding: 16,
     borderRadius: 12,
+    borderWidth: 1,
     marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

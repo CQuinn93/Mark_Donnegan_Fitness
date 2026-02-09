@@ -2,17 +2,17 @@ import { Theme } from '../types';
 
 export const lightTheme: Theme = {
   colors: {
-    primary: '#FF6B35', // Orange - MD Fitness brand color
-    secondary: '#2C3E50', // Dark blue
-    background: '#F8F9FA',
-    surface: '#FFFFFF',
-    text: '#2C3E50',
-    textSecondary: '#6C757D',
-    border: '#E9ECEF',
-    success: '#28A745',
+    primary: '#808080', // Grey - MD Fitness brand color
+    secondary: '#333333', // Dark grey
+    background: '#FFFFFF', // White background
+    surface: '#F8F9FA', // Light grey surface
+    text: '#000000', // Black text
+    textSecondary: '#808080', // Grey secondary text
+    border: '#E0E0E0', // Light grey border
+    success: '#4CAF50',
     error: '#DC3545',
-    warning: '#FFC107',
-    info: '#17A2B8',
+    warning: '#FF9800',
+    info: '#2196F3',
   },
   spacing: {
     xs: 4,
@@ -52,13 +52,13 @@ export const lightTheme: Theme = {
 
 export const darkTheme: Theme = {
   colors: {
-    primary: '#FF6B35', // Keep orange for brand consistency
-    secondary: '#E2E8F0', // Light blue for dark theme
+    primary: '#808080', // Grey - MD Fitness brand color
+    secondary: '#B0B0B0', // Light grey
     background: '#000000', // Pure black background
-    surface: '#1A1A1A', // Slightly lighter black for surfaces
-    text: '#FFFFFF',
-    textSecondary: '#B0B0B0',
-    border: '#333333', // Darker border for pure black theme
+    surface: '#1A1A1A', // Dark grey surface
+    text: '#FFFFFF', // White text
+    textSecondary: '#808080', // Grey secondary text
+    border: '#333333', // Dark grey border
     success: '#4CAF50',
     error: '#F44336',
     warning: '#FF9800',

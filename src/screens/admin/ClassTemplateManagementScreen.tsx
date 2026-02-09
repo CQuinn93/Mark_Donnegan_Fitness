@@ -10,10 +10,11 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useAdminData } from '../../context/AdminDataContext';
 import { supabaseApi } from '../../config/supabase';
 
 interface ClassTemplate {
@@ -38,6 +39,7 @@ interface Props {
 
 const ClassTemplateManagementScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { classes: cachedClasses, scheduledClasses: cachedSchedules } = useAdminData();
   const [classTemplates, setClassTemplates] = useState<ClassTemplateWithStats[]>([]);
   const [filteredTemplates, setFilteredTemplates] = useState<ClassTemplateWithStats[]>([]);
   const [loading, setLoading] = useState(true);

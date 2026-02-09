@@ -8,11 +8,12 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useAdminData } from '../../context/AdminDataContext';
 import { userService, testSupabaseConnection } from '../../services/api';
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
 
 const AddTrainerScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { addUser, addTrainer } = useAdminData();
   const [isLoading, setIsLoading] = useState(false);
   
   // Form fields - only basic required fields
@@ -63,6 +65,18 @@ const AddTrainerScreen: React.FC<Props> = ({ navigation, route }) => {
       if (result.error) {
         Alert.alert('Error', result.error);
         return;
+      }
+
+      // Add new trainer to cache immediately (no extra API call)
+      if (result.profile) {
+        addUser(result.profile);
+        addTrainer({
+          id: result.profile.id,
+          first_name: result.profile.first_name,
+          last_name: result.profile.last_name || '',
+          email: result.profile.email,
+          role: 'trainer',
+        });
       }
 
       // Show success message

@@ -34,13 +34,14 @@ const TrainerNavigator: React.FC<TrainerNavigatorProps> = ({ user, onSignOut }) 
     >
       <Stack.Screen 
         name="TrainerDashboard" 
-        component={TrainerDashboardScreen}
         initialParams={{ user }}
         options={{ 
           title: 'Trainer Dashboard',
           headerShown: false // Hide header since TrainerDashboardScreen has its own
         }}
-      />
+      >
+        {(props) => <TrainerDashboardScreen {...props} onSignOut={onSignOut} />}
+      </Stack.Screen>
       <Stack.Screen 
         name="ClassManagement" 
         options={{ 

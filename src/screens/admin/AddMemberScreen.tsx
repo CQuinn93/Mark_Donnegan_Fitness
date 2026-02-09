@@ -8,11 +8,12 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useAdminData } from '../../context/AdminDataContext';
 import { userService, testSupabaseConnection } from '../../services/api';
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
 
 const AddMemberScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = useTheme();
+  const { addUser } = useAdminData();
   const [isLoading, setIsLoading] = useState(false);
   
   // Form fields - only basic required fields
@@ -63,6 +65,11 @@ const AddMemberScreen: React.FC<Props> = ({ navigation, route }) => {
       if (result.error) {
         Alert.alert('Error', result.error);
         return;
+      }
+
+      // Add new member to cache immediately (no extra API call)
+      if (result.profile) {
+        addUser(result.profile);
       }
 
       // Show success message

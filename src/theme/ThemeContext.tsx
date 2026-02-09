@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { lightTheme, darkTheme } from './index';
 
-type ThemeMode = 'light' | 'dark';
+type ThemeMode = 'light' | 'dark' | 'system';
 
 interface ThemeContextType {
   theme: typeof lightTheme;
   themeMode: ThemeMode;
+  actualThemeMode: 'light' | 'dark';
   toggleTheme: () => void;
   setThemeMode: (mode: ThemeMode) => void;
 }
@@ -26,7 +28,8 @@ interface ThemeProviderProps {
 }
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
+  const systemColorScheme = useColorScheme();
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
 
   useEffect(() => {
     loadThemePreference();
@@ -35,11 +38,15 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const loadThemePreference = async () => {
     try {
       const savedTheme = await AsyncStorage.getItem('themeMode');
-      if (savedTheme === 'dark' || savedTheme === 'light') {
-        setThemeMode(savedTheme);
+      if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'system') {
+        setThemeMode(savedTheme as ThemeMode);
+      } else {
+        // Default to system if no preference saved
+        setThemeMode('system');
       }
     } catch (error) {
       console.log('Error loading theme preference:', error);
+      setThemeMode('system');
     }
   };
 
@@ -52,7 +59,15 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   };
 
   const toggleTheme = () => {
-    const newMode = themeMode === 'light' ? 'dark' : 'light';
+    // Cycle through: system -> light -> dark -> system
+    let newMode: ThemeMode;
+    if (themeMode === 'system') {
+      newMode = 'light';
+    } else if (themeMode === 'light') {
+      newMode = 'dark';
+    } else {
+      newMode = 'system';
+    }
     setThemeMode(newMode);
     saveThemePreference(newMode);
   };
@@ -62,13 +77,20 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     saveThemePreference(mode);
   };
 
-  const theme = themeMode === 'light' ? lightTheme : darkTheme;
+  // Determine actual theme based on mode and system preference
+  const actualThemeMode: 'light' | 'dark' = 
+    themeMode === 'system' 
+      ? (systemColorScheme === 'dark' ? 'dark' : 'light')
+      : themeMode;
+
+  const theme = actualThemeMode === 'light' ? lightTheme : darkTheme;
 
   return (
     <ThemeContext.Provider
       value={{
         theme,
         themeMode,
+        actualThemeMode,
         toggleTheme,
         setThemeMode: handleSetThemeMode,
       }}

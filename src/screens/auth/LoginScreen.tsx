@@ -52,7 +52,7 @@ interface Props {
 }
 
 const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
-  const { theme, themeMode, toggleTheme } = useTheme();
+  const { theme, actualThemeMode } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [adminCode, setAdminCode] = useState('');
@@ -145,7 +145,10 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
           setStatusMessage('Login successful! Redirecting...');
           onLoginSuccess(result.user);
         } else {
-          setStatusMessage(result.error || 'Login failed');
+          const errorMessage = result.error || 'Login failed';
+          setStatusMessage(errorMessage);
+          // Show alert for better visibility of login errors
+          Alert.alert('Login Failed', errorMessage);
         }
       }
     } catch (error) {
@@ -212,21 +215,6 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
         style={styles.keyboardAvoidingView}
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
-          {/* Theme Toggle Button */}
-          <TouchableOpacity
-            style={[styles.themeToggle, { 
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border 
-            }]}
-            onPress={toggleTheme}
-          >
-            <Ionicons 
-              name={themeMode === 'light' ? 'moon' : 'sunny'} 
-              size={24} 
-              color={theme.colors.text} 
-            />
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.logoContainer}
             onPressIn={handleLogoPressIn}
@@ -234,7 +222,7 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
             onPress={handleLogoPress}
           >
             <Image 
-              source={themeMode === 'light' 
+              source={actualThemeMode === 'light' 
                 ? require('../../../assets/MDFitness_Logo.png')
                 : require('../../../assets/MDFitness_Logo_Dark.png')
               } 
@@ -408,26 +396,6 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  themeToggle: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    zIndex: 1000,
-    borderWidth: 1,
   },
   keyboardAvoidingView: {
     flex: 1,

@@ -1,5 +1,6 @@
-import { supabaseApi, authApi } from '../config/supabase';
+import { supabaseApi, authApi, SUPABASE_CONFIG } from '../config/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { calculateBaseMacros } from '../utils/macroCalculations';
 import {
   User,
   Class,
@@ -18,6 +19,37 @@ import {
   AddProgressForm,
   AddGoalForm,
 } from '../types';
+
+// Helper function to send welcome email (non-blocking)
+async function sendWelcomeEmail(
+  email: string,
+  firstName: string,
+  role: 'member' | 'trainer' | 'admin',
+  accessCode: string
+): Promise<void> {
+  try {
+    const edgeFunctionUrl = `${SUPABASE_CONFIG.url}/functions/v1/send-welcome-email`;
+    
+    await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        firstName,
+        role,
+        accessCode,
+      }),
+    });
+    
+    console.log('Welcome email sent successfully to:', email);
+  } catch (error) {
+    // Don't throw - email failure shouldn't block user creation
+    console.error('Failed to send welcome email (non-blocking):', error);
+  }
+}
 
 // Auth Services
 export const authService = {
@@ -96,6 +128,10 @@ export const authService = {
       });
 
       if (response.data.access_token) {
+        // Store the session token
+        await this.storeSession(response.data.access_token);
+        console.log('Session token stored in AsyncStorage');
+        
         // Set the token for future requests
         supabaseApi.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
         authApi.defaults.headers.common['Authorization'] = `Bearer ${response.data.access_token}`;
@@ -166,17 +202,45 @@ export const authService = {
       console.error('=== AUTH SERVICE SIGN IN ERROR ===');
       console.error('Error details:', error.response?.data || error.message);
       console.error('Error status:', error.response?.status);
-      console.error('Error headers:', error.response?.headers);
+      
+      // Handle specific error status codes
+      if (error.response?.status === 404) {
+        return { user: null, error: 'Account not found. Please check your email address or sign up for an account.' };
+      }
+      
+      if (error.response?.status === 401) {
+        return { user: null, error: 'Incorrect email or password. Please try again.' };
+      }
+      
+      if (error.response?.status === 400) {
+        return { user: null, error: 'Invalid email or password. Please check your credentials and try again.' };
+      }
       
       // Handle specific Supabase errors
       if (error.response?.data?.error_description) {
-        if (error.response.data.error_description.includes('Invalid login credentials')) {
-          return { user: null, error: 'Invalid email or password' };
+        const errorDesc = error.response.data.error_description.toLowerCase();
+        
+        if (errorDesc.includes('invalid login credentials') || 
+            errorDesc.includes('invalid password') ||
+            errorDesc.includes('wrong password')) {
+          return { user: null, error: 'Incorrect email or password. Please try again.' };
         }
+        
+        if (errorDesc.includes('user not found') || errorDesc.includes('email not found')) {
+          return { user: null, error: 'No account found with this email address. Please check your email or sign up.' };
+        }
+        
         return { user: null, error: error.response.data.error_description };
       }
       
-      return { user: null, error: 'Sign in failed. Please try again.' };
+      if (error.response?.data?.error) {
+        const errorMsg = error.response.data.error.toLowerCase();
+        if (errorMsg.includes('invalid') && errorMsg.includes('credentials')) {
+          return { user: null, error: 'Incorrect email or password. Please try again.' };
+        }
+      }
+      
+      return { user: null, error: 'Unable to sign in. Please check your email and password, then try again.' };
     }
   },
 
@@ -238,27 +302,57 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
     authApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
     supabaseApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
 
-    const response = await authApi.get('/user');
-    if (response.data) {
-      const profileResponse = await supabaseApi.get(`/profiles?id=eq.${response.data.id}`);
-      const user = profileResponse.data[0];
-      return { user, error: null };
+    // Try to get user from auth API
+    try {
+      const response = await authApi.get('/user');
+      if (response.data && response.data.id) {
+        const profileResponse = await supabaseApi.get(`/profiles?id=eq.${response.data.id}`);
+        const user = profileResponse.data?.[0];
+        if (user) {
+          return { user, error: null };
+        }
+      }
+    } catch (authError: any) {
+      // If auth API fails, check if it's a JWT error
+      const isBadJwt = authError.response?.data?.error_code === 'bad_jwt';
+      const is403 = authError.response?.status === 403;
+      
+      // Only clear session if we're certain it's a bad JWT error
+      // A 403 alone might be from permissions, not necessarily an invalid token
+      if (isBadJwt) {
+        console.log('Invalid JWT token detected (bad_jwt), clearing stored session');
+        await this.clearStoredSession();
+        delete authApi.defaults.headers.common['Authorization'];
+        delete supabaseApi.defaults.headers.common['Authorization'];
+        return { user: null, error: 'Invalid session token' };
+      }
+      
+      // For 403 errors that aren't bad_jwt, try to get user from profile directly
+      // The token might still be valid for profile access even if auth API fails
+      if (is403 && !isBadJwt) {
+        console.log('Auth API returned 403 (not bad_jwt), trying profile lookup...');
+        // Don't clear session - token might still be valid for other operations
+        // Return error but don't invalidate the session
+        return { user: null, error: 'Unable to verify session. Please try logging in again.' };
+      }
+      
+      // For other errors, log but don't clear session
+      console.log('Auth API error (non-JWT):', authError.response?.data || authError.message);
+      return { user: null, error: authError.response?.data?.message || 'Failed to get user' };
     }
+    
     return { user: null, error: 'No user found' };
     
   } catch (error: any) {
     console.error('Get current user error:', error.response?.data || error.message);
     
-    // Only clear the session if we get a 401 (unauthorized)
-    // Don't clear on 403 (forbidden) as that might be temporary
-    if (error.response?.status === 401) {
-      console.log('Session expired (401), clearing stored session');
+    // Clear the session on authentication errors (401, 403 with bad_jwt)
+    if (error.response?.status === 401 || 
+        (error.response?.status === 403 && error.response?.data?.error_code === 'bad_jwt')) {
+      console.log('Invalid or expired session, clearing stored session');
       await this.clearStoredSession();
       delete authApi.defaults.headers.common['Authorization'];
       delete supabaseApi.defaults.headers.common['Authorization'];
-    } else if (error.response?.status === 403) {
-      console.log('Access forbidden (403), but keeping session intact');
-      // Don't clear the session on 403 errors
     }
     
     return { user: null, error: 'Failed to get user' };
@@ -296,19 +390,70 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
     // Reset password
     async resetPassword(email: string): Promise<{ error: string | null }> {
       try {
-        await authApi.post('/recover', {
+        console.log('Attempting to reset password for email:', email);
+        
+        // Supabase password reset endpoint
+        // The redirectTo URL is optional but recommended for better UX
+        const response = await authApi.post('/recover', {
           email: email,
+          // Optional: Add redirect URL if you have a password reset page
+          // redirectTo: 'your-app://reset-password'
         });
+        
+        console.log('Password reset email sent successfully');
         return { error: null };
       } catch (error: any) {
-        console.error('Reset password error:', error.response?.data || error.message);
+        console.error('Reset password error:', error);
+        console.error('Error response:', error.response?.data);
+        console.error('Error status:', error.response?.status);
         
         // Handle specific Supabase errors
         if (error.response?.data?.error_description) {
+          const errorDesc = error.response.data.error_description.toLowerCase();
+          
+          // Check for common error messages
+          if (errorDesc.includes('user not found') || errorDesc.includes('email not found')) {
+            return { error: 'No account found with this email address.' };
+          }
+          
+          if (errorDesc.includes('rate limit') || errorDesc.includes('too many requests')) {
+            return { error: 'Too many reset requests. Please wait a few minutes and try again.' };
+          }
+          
           return { error: error.response.data.error_description };
         }
         
-        return { error: 'Failed to send reset email. Please try again.' };
+        // Handle HTTP status codes
+        if (error.response?.status === 404) {
+          return { error: 'Password reset endpoint not found. Please contact support.' };
+        }
+        
+        if (error.response?.status === 429) {
+          return { error: 'Too many reset requests. Please wait a few minutes and try again.' };
+        }
+        
+        if (error.response?.status === 400) {
+          // Provide more specific error message based on response data
+          const errorData = error.response?.data;
+          if (errorData?.error_description) {
+            const errorDesc = errorData.error_description.toLowerCase();
+            if (errorDesc.includes('email')) {
+              return { error: 'Invalid email address format. Please check and try again.' };
+            }
+            if (errorDesc.includes('rate limit') || errorDesc.includes('too many')) {
+              return { error: 'Too many reset requests. Please wait a few minutes and try again.' };
+            }
+            return { error: errorData.error_description };
+          }
+          if (errorData?.message) {
+            return { error: errorData.message };
+          }
+          return { error: 'Invalid request. Please check your email address and try again.' };
+        }
+        
+        // Generic error message
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to send reset email. Please try again.';
+        return { error: errorMessage };
       }
     },
 
@@ -338,7 +483,6 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
         console.error('=== ADMIN VERIFICATION ERROR ===');
         console.error('Error details:', error.response?.data || error.message);
         console.error('Error status:', error.response?.status);
-        console.error('Error headers:', error.response?.headers);
         return { admin: null, error: 'Failed to verify admin code' };
       }
     },
@@ -369,42 +513,110 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
         console.error('=== TRAINER VERIFICATION ERROR ===');
         console.error('Error details:', error.response?.data || error.message);
         console.error('Error status:', error.response?.status);
-        console.error('Error headers:', error.response?.headers);
         return { trainer: null, error: 'Failed to verify trainer code' };
       }
     },
 
     // Change password (for first-time login)
+    // Note: Supabase's /auth/v1/user endpoint may have restrictions on password changes
+    // If this fails, users can use the "Forgot Password" feature to reset their password
     async changePassword(newPassword: string): Promise<{ error: string | null }> {
       try {
         console.log('Attempting to change password...');
         
-        // First, check if we have a valid auth token
-        if (!authApi.defaults.headers.common['Authorization']) {
-          console.log('No auth token found, cannot change password');
+        // First, verify we have a valid token by checking stored session
+        // Get the most recent token (might have been refreshed by signIn)
+        let storedToken = await this.getStoredSession();
+        if (!storedToken) {
+          console.log('No stored session token found, cannot change password');
           return { error: 'Not authenticated. Please log in again.' };
         }
         
-        // Store the current auth token to restore it if needed
-        const currentAuthToken = authApi.defaults.headers.common['Authorization'];
+        // Ensure the token is set in headers
+        authApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        supabaseApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
         
-        const response = await authApi.put('/user', {
-          password: newPassword
-        });
+        console.log('Token retrieved and set in headers for password change');
         
-        console.log('Password changed successfully');
-        return { error: null };
-      } catch (error: any) {
-        console.error('Error changing password:', error);
-        
-        // Don't clear the session on password change failure
-        // The session should remain valid even if password change fails
-        
-        if (error.response?.status === 403) {
-          return { error: 'Cannot change password at this time. You can change it later in your profile settings.' };
+        // Re-fetch the token right before using it to ensure we have the latest
+        // This handles cases where signIn just updated the token
+        const latestToken = await this.getStoredSession();
+        if (latestToken && latestToken !== storedToken) {
+          console.log('Found newer token, updating headers');
+          storedToken = latestToken;
+          authApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          supabaseApi.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
         }
         
-        return { error: 'Failed to change password' };
+        // Skip token validation - just use the stored token directly
+        // Token validation can fail even with valid tokens in some Supabase configurations
+        // The password change endpoint will validate the token itself
+        console.log('Using stored token for password change (skipping validation)');
+        
+        console.log('Making password change request...');
+        
+        // Supabase password update endpoint
+        // Note: Some Supabase configurations may restrict direct password changes
+        // If this returns 403, the user will need to use "Forgot Password" instead
+        try {
+          const response = await authApi.put('/user', {
+            password: newPassword
+          });
+          
+          console.log('Password changed successfully');
+          return { error: null };
+        } catch (putError: any) {
+          // If PUT fails, try alternative approach using PATCH
+          if (putError.response?.status === 403 || putError.response?.status === 405) {
+            console.log('PUT method not allowed, trying alternative approach...');
+            // Some Supabase instances require PATCH instead of PUT
+            const patchResponse = await authApi.patch('/user', {
+              password: newPassword
+            });
+            console.log('Password changed successfully via PATCH');
+            return { error: null };
+          }
+          throw putError; // Re-throw if it's a different error
+        }
+      } catch (error: any) {
+        console.error('Error changing password:', error);
+        console.error('Error response:', error.response?.data);
+        console.error('Error status:', error.response?.status);
+        
+        // Handle bad_jwt errors specifically
+        if (error.response?.data?.error_code === 'bad_jwt' || 
+            (error.response?.status === 403 && error.response?.data?.msg?.includes('sub claim'))) {
+          console.log('Bad JWT error detected, clearing session');
+          await this.clearStoredSession();
+          delete authApi.defaults.headers.common['Authorization'];
+          delete supabaseApi.defaults.headers.common['Authorization'];
+          return { 
+            error: 'Your session has expired. Please log in again and try changing your password.' 
+          };
+        }
+        
+        if (error.response?.status === 403) {
+          // 403 Forbidden - Supabase may restrict password changes via this endpoint
+          // This is common in some Supabase configurations
+          console.log('403 error - password change restricted. User can use "Forgot Password" instead.');
+          return { 
+            error: 'Password change via this method is not available. Please use the "Forgot Password" feature on the login screen to set your password.' 
+          };
+        }
+        
+        if (error.response?.status === 401) {
+          return { error: 'Session expired. Please log in again.' };
+        }
+        
+        if (error.response?.data?.message) {
+          return { error: error.response.data.message };
+        }
+        
+        if (error.response?.data?.error_description) {
+          return { error: error.response.data.error_description };
+        }
+        
+        return { error: 'Failed to change password. Please use the "Forgot Password" feature to reset your password.' };
       }
     },
 
@@ -421,10 +633,23 @@ async getCurrentUser(): Promise<{ user: User | null; error: string | null }> {
       try {
         const response = await supabaseApi.patch(`/profiles?id=eq.${userId}`, profileData);
         return { user: response.data[0], error: null };
-      } catch (error: any) {
-        console.error('Error updating user profile:', error.response?.data || error.message);
-        return { user: null, error: 'Failed to update profile' };
+    } catch (error: any) {
+      console.error('Error updating user profile:', error.response?.data || error.message);
+      
+      // Handle 400 Bad Request errors gracefully
+      if (error.response?.status === 400) {
+        const errorData = error.response?.data;
+        if (errorData?.message) {
+          return { user: null, error: errorData.message };
+        }
+        if (errorData?.error_description) {
+          return { user: null, error: errorData.error_description };
+        }
+        return { user: null, error: 'Invalid profile data. Please check your input and try again.' };
       }
+      
+      return { user: null, error: error.response?.data?.message || 'Failed to update profile' };
+    }
     },
 
     // Check if user has temporary password (for first-time login)
@@ -481,12 +706,23 @@ export const userService = {
     }
   },
 
+  // Lightweight count check - only fetches ids to compare with cache
+  async getUserCount(): Promise<{ count: number; error: string | null }> {
+    try {
+      const response = await supabaseApi.get('/profiles?select=id');
+      return { count: response.data?.length ?? 0, error: null };
+    } catch (error: any) {
+      console.error('Error fetching user count:', error.response?.data || error.message);
+      return { count: 0, error: 'Failed to fetch user count' };
+    }
+  },
+
   // Create new user (admin function) - UPDATED VERSION
   async createUser(userData: {
     email: string;
     first_name: string;
     role: 'member' | 'trainer' | 'admin';
-  }): Promise<{ user: any | null; access_code?: string; error: string | null }> {
+  }): Promise<{ user: any | null; profile?: User; access_code?: string; error: string | null }> {
     try {
       console.log('=== CREATE USER START (AUTH ONLY) ===');
       console.log('User data:', userData);
@@ -541,9 +777,11 @@ export const userService = {
         };
 
         console.log('Creating profile manually:', profileData);
+        let createdProfile: User | undefined;
         try {
           const profileResponse = await supabaseApi.post('/profiles', profileData);
           console.log('Profile created successfully:', profileResponse.data);
+          createdProfile = profileResponse.data?.[0] || { ...profileData, role: 'member' } as User;
         } catch (profileError: any) {
           console.error('Failed to create profile:', {
             error: profileError.response?.data || profileError.message,
@@ -552,10 +790,14 @@ export const userService = {
           return { user: null, error: 'Failed to create user profile' };
         }
 
-        // Email notifications removed - no longer needed
+        // Send welcome email (non-blocking - won't fail user creation if email fails)
+        sendWelcomeEmail(userData.email, userData.first_name, 'member', accessCode).catch(
+          (err) => console.error('Email sending failed (non-blocking):', err)
+        );
 
         return { 
           user: authResponse.data.user, 
+          profile: createdProfile,
           access_code: accessCode,
           error: null 
         };
@@ -609,9 +851,11 @@ export const userService = {
         };
 
         console.log('Creating trainer profile manually:', profileData);
+        let createdProfile: User | undefined;
         try {
           const profileResponse = await supabaseApi.post('/profiles', profileData);
           console.log('Trainer profile created successfully:', profileResponse.data);
+          createdProfile = profileResponse.data?.[0] || { ...profileData, role: 'trainer' } as User;
         } catch (profileError: any) {
           console.error('Failed to create trainer profile:', {
             error: profileError.response?.data || profileError.message,
@@ -620,10 +864,14 @@ export const userService = {
           return { user: null, error: 'Failed to create trainer profile' };
         }
 
-        // Email notifications removed - no longer needed
+        // Send welcome email (non-blocking - won't fail user creation if email fails)
+        sendWelcomeEmail(userData.email, userData.first_name, 'trainer', accessCode).catch(
+          (err) => console.error('Email sending failed (non-blocking):', err)
+        );
 
         return { 
           user: authResponse.data.user, 
+          profile: createdProfile,
           access_code: accessCode,
           error: null 
         };
@@ -677,9 +925,11 @@ export const userService = {
         };
 
         console.log('Creating admin profile manually:', profileData);
+        let createdProfile: User | undefined;
         try {
           const profileResponse = await supabaseApi.post('/profiles', profileData);
           console.log('Admin profile created successfully:', profileResponse.data);
+          createdProfile = profileResponse.data?.[0] || { ...profileData, role: 'admin' } as User;
         } catch (profileError: any) {
           console.error('Failed to create admin profile:', {
             error: profileError.response?.data || profileError.message,
@@ -688,10 +938,14 @@ export const userService = {
           return { user: null, error: 'Failed to create admin profile' };
         }
 
-        // Email notifications removed - no longer needed
+        // Send welcome email (non-blocking - won't fail user creation if email fails)
+        sendWelcomeEmail(userData.email, userData.first_name, 'admin', accessCode).catch(
+          (err) => console.error('Email sending failed (non-blocking):', err)
+        );
 
         return { 
           user: authResponse.data.user, 
+          profile: createdProfile,
           access_code: accessCode,
           error: null 
         };
@@ -731,6 +985,18 @@ export const userService = {
       const user = response.data[0];
       return { user, error: null };
     } catch (error: any) {
+      // Handle 400 Bad Request errors gracefully
+      if (error.response?.status === 400) {
+        const errorData = error.response?.data;
+        if (errorData?.message) {
+          return { user: null, error: errorData.message };
+        }
+        if (errorData?.error_description) {
+          return { user: null, error: errorData.error_description };
+        }
+        return { user: null, error: 'Invalid profile data. Please check your input and try again.' };
+      }
+      
       return { user: null, error: error.response?.data?.message || 'Failed to update profile' };
     }
   },
@@ -743,12 +1009,29 @@ export const userService = {
     phone?: string;
     role?: 'member' | 'trainer' | 'admin';
     trainer_code?: string;
+    height_cm?: number;
+    weight_kg?: number;
+    fitness_goals?: string[];
+    date_of_birth?: string;
+    gender?: string;
   }): Promise<{ user: User | null; error: string | null }> {
     try {
       const response = await supabaseApi.patch(`/profiles?id=eq.${userId}`, data);
       const user = response.data[0];
       return { user, error: null };
     } catch (error: any) {
+      // Handle 400 Bad Request errors gracefully
+      if (error.response?.status === 400) {
+        const errorData = error.response?.data;
+        if (errorData?.message) {
+          return { user: null, error: errorData.message };
+        }
+        if (errorData?.error_description) {
+          return { user: null, error: errorData.error_description };
+        }
+        return { user: null, error: 'Invalid user data. Please check your input and try again.' };
+      }
+      
       return { user: null, error: error.response?.data?.message || 'Failed to update user' };
     }
   },
@@ -803,6 +1086,19 @@ export const classService = {
       return { class: response.data[0], error: null };
     } catch (error: any) {
       console.error('Error creating class template:', error.response?.data || error.message);
+      
+      // Handle 400 Bad Request errors gracefully
+      if (error.response?.status === 400) {
+        const errorData = error.response?.data;
+        if (errorData?.message) {
+          return { class: null, error: errorData.message };
+        }
+        if (errorData?.error_description) {
+          return { class: null, error: errorData.error_description };
+        }
+        return { class: null, error: 'Invalid class data. Please check your input and try again.' };
+      }
+      
       return { class: null, error: error.response?.data?.message || 'Failed to create class template' };
     }
   },
@@ -898,6 +1194,495 @@ export const classService = {
       return { schedules: null, error: 'Failed to fetch class schedules' };
     }
   },
+
+  // Get upcoming class schedules (for dashboard)
+  async getUpcomingClassSchedules(): Promise<{ schedules: any[] | null; error: string | null }> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const queryUrl = `/class_schedules?scheduled_date=gte.${today}&status=eq.active&select=*,classes(name,description,duration),profiles!trainer_id(first_name,last_name)&order=scheduled_date.asc,scheduled_time.asc`;
+      
+      console.log('API: Fetching upcoming class schedules...');
+      console.log('API: Query URL:', queryUrl);
+      console.log('API: Today date:', today);
+      console.log('API: Authorization header:', supabaseApi.defaults.headers.common['Authorization'] ? 'Present' : 'Missing');
+      
+      const response = await supabaseApi.get(queryUrl);
+      
+      console.log('API: Response received:', {
+        hasData: !!response.data,
+        dataType: Array.isArray(response.data) ? 'array' : typeof response.data,
+        dataLength: Array.isArray(response.data) ? response.data.length : 'N/A',
+        firstItem: response.data?.[0] || 'No items'
+      });
+      
+      if (!response.data || !Array.isArray(response.data)) {
+        console.warn('API: Response data is not an array:', response.data);
+        return { schedules: [], error: null };
+      }
+      
+      if (response.data.length === 0) {
+        console.log('API: No class schedules found for date >=', today);
+        return { schedules: [], error: null };
+      }
+      
+      // Filter out classes that are 15 minutes past their start time
+      const now = new Date();
+      const filteredSchedules = response.data.filter((schedule: any) => {
+        // Combine scheduled_date and scheduled_time
+        const scheduledDateTime = new Date(`${schedule.scheduled_date}T${schedule.scheduled_time}`);
+        
+        // Calculate cutoff time: scheduled start + 15 minutes
+        const cutoffTime = new Date(scheduledDateTime);
+        cutoffTime.setMinutes(cutoffTime.getMinutes() + 15);
+        
+        // Only include if current time is before the cutoff (15 minutes after class start)
+        return now < cutoffTime;
+      });
+      
+      console.log(`API: Filtered schedules (removed ${response.data.length - filteredSchedules.length} past classes)`);
+      
+      const schedules = filteredSchedules.map((schedule: any) => {
+        // Handle trainer name - profiles might be an object or array
+        let trainerName = 'Mark'; // Default to Mark since he's the only trainer
+        if (schedule.profiles) {
+          if (Array.isArray(schedule.profiles)) {
+            const trainer = schedule.profiles[0];
+            trainerName = `${trainer?.first_name || ''} ${trainer?.last_name || ''}`.trim() || 'Mark';
+          } else {
+            trainerName = `${schedule.profiles.first_name || ''} ${schedule.profiles.last_name || ''}`.trim() || 'Mark';
+          }
+        }
+        
+        return {
+          ...schedule,
+          id: schedule.id,
+          class_id: schedule.class_id,
+          trainer_id: schedule.trainer_id,
+          scheduled_date: schedule.scheduled_date,
+          scheduled_time: schedule.scheduled_time,
+          difficulty_level: schedule.difficulty_level,
+          location: schedule.location,
+          current_bookings: schedule.current_bookings || 0,
+          max_bookings: schedule.max_bookings,
+          status: schedule.status,
+          class_name: schedule.classes?.name || 'Unknown Class',
+          class_description: schedule.classes?.description || '',
+          duration: schedule.classes?.duration || schedule.duration || 45,
+          trainer_name: trainerName,
+        };
+      });
+      
+      console.log('API: Fetched upcoming class schedules:', schedules.length);
+      return { schedules, error: null };
+    } catch (error: any) {
+      console.error('API: Error fetching upcoming class schedules:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        headers: error.response?.headers
+      });
+      return { schedules: null, error: error.response?.data?.message || error.message || 'Failed to fetch upcoming class schedules' };
+    }
+  },
+
+  // Book a class
+  async bookClass(classScheduleId: string, memberId: string): Promise<{ booking: any | null; error: string | null }> {
+    try {
+      // First check if class is full
+      const scheduleResponse = await supabaseApi.get(`/class_schedules?id=eq.${classScheduleId}&select=id,scheduled_date,current_bookings,max_bookings`);
+      const schedule = scheduleResponse.data[0];
+      
+      if (!schedule) {
+        return { booking: null, error: 'Class not found' };
+      }
+      
+      if (schedule.current_bookings >= schedule.max_bookings) {
+        return { booking: null, error: 'Class is full' };
+      }
+
+      // Check if user already has a booking (confirmed or waitlist) for this class
+      const existingBooking = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}`
+      );
+      
+      if (existingBooking.data && existingBooking.data.length > 0) {
+        const existing = existingBooking.data[0];
+        if (existing.status === 'confirmed') {
+          return { booking: null, error: 'You are already booked for this class. Please check "My Classes" tab.' };
+        } else if (existing.status === 'waitlist') {
+          return { booking: null, error: 'You are already on the waitlist for this class' };
+        } else if (existing.status === 'cancelled') {
+          // If there's a cancelled booking, update it to confirmed instead of creating a new one
+          // But first check booking limits
+          const classDate = schedule.scheduled_date;
+          
+          // Check daily booking limit (max 2 classes per day)
+          const dayBookingsResponse = await supabaseApi.get(
+            `/class_bookings?member_id=eq.${memberId}&status=eq.confirmed&select=class_schedules!inner(scheduled_date)&class_schedules.scheduled_date=eq.${classDate}`
+          );
+          const dayBookingsCount = dayBookingsResponse.data?.length || 0;
+          if (dayBookingsCount >= 2) {
+            return { booking: null, error: 'You have reached the daily limit of 2 classes. Please cancel an existing booking or choose a different day.' };
+          }
+
+          // Check weekly booking limit (max 9 classes per week)
+          const classDateObj = new Date(classDate);
+          const startOfWeek = new Date(classDateObj);
+          startOfWeek.setDate(classDateObj.getDate() - classDateObj.getDay()); // Sunday = 0
+          const endOfWeek = new Date(startOfWeek);
+          endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday
+          
+          const weekStartStr = startOfWeek.toISOString().split('T')[0];
+          const weekEndStr = endOfWeek.toISOString().split('T')[0];
+          
+          const weekBookingsResponse = await supabaseApi.get(
+            `/class_bookings?member_id=eq.${memberId}&status=eq.confirmed&select=class_schedules!inner(scheduled_date)&class_schedules.scheduled_date=gte.${weekStartStr}&class_schedules.scheduled_date=lte.${weekEndStr}`
+          );
+          const weekBookingsCount = weekBookingsResponse.data?.length || 0;
+          if (weekBookingsCount >= 9) {
+            return { booking: null, error: 'You have reached the weekly limit of 9 classes. Please cancel an existing booking or wait until next week.' };
+          }
+
+          // If limits are OK, update cancelled booking to confirmed
+          const updateResponse = await supabaseApi.patch(`/class_bookings?id=eq.${existing.id}`, {
+            status: 'confirmed',
+            booked_at: new Date().toISOString(),
+          });
+          
+          // Update current_bookings count
+          await supabaseApi.patch(`/class_schedules?id=eq.${classScheduleId}`, {
+            current_bookings: schedule.current_bookings + 1,
+          });
+          
+          return { booking: updateResponse.data[0], error: null };
+        }
+      }
+
+      // Check daily booking limit (max 2 classes per day)
+      const classDate = schedule.scheduled_date;
+      const dayBookingsResponse = await supabaseApi.get(
+        `/class_bookings?member_id=eq.${memberId}&status=eq.confirmed&select=class_schedules!inner(scheduled_date)&class_schedules.scheduled_date=eq.${classDate}`
+      );
+      
+      const dayBookingsCount = dayBookingsResponse.data?.length || 0;
+      if (dayBookingsCount >= 2) {
+        return { booking: null, error: 'You have reached the daily limit of 2 classes. Please cancel an existing booking or choose a different day.' };
+      }
+
+      // Check weekly booking limit (max 9 classes per week)
+      const classDateObj = new Date(classDate);
+      const startOfWeek = new Date(classDateObj);
+      startOfWeek.setDate(classDateObj.getDate() - classDateObj.getDay()); // Sunday = 0
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday
+      
+      const weekStartStr = startOfWeek.toISOString().split('T')[0];
+      const weekEndStr = endOfWeek.toISOString().split('T')[0];
+      
+      const weekBookingsResponse = await supabaseApi.get(
+        `/class_bookings?member_id=eq.${memberId}&status=eq.confirmed&select=class_schedules!inner(scheduled_date)&class_schedules.scheduled_date=gte.${weekStartStr}&class_schedules.scheduled_date=lte.${weekEndStr}`
+      );
+      
+      const weekBookingsCount = weekBookingsResponse.data?.length || 0;
+      if (weekBookingsCount >= 9) {
+        return { booking: null, error: 'You have reached the weekly limit of 9 classes. Please cancel an existing booking or wait until next week.' };
+      }
+
+      // Create new booking
+      const bookingResponse = await supabaseApi.post('/class_bookings', {
+        class_schedule_id: classScheduleId,
+        member_id: memberId,
+        status: 'confirmed',
+      });
+
+      // Update current_bookings count
+      await supabaseApi.patch(`/class_schedules?id=eq.${classScheduleId}`, {
+        current_bookings: schedule.current_bookings + 1,
+      });
+
+      return { booking: bookingResponse.data[0], error: null };
+    } catch (error: any) {
+      console.error('Error booking class:', error.response?.data || error.message);
+      
+      // Handle duplicate key error (user already booked)
+      if (error.response?.data?.code === '23505' || 
+          (error.response?.data?.message && error.response.data.message.includes('duplicate key'))) {
+        return { booking: null, error: 'You are already booked for this class. Please check "My Classes" tab.' };
+      }
+      
+      // Handle 400 Bad Request errors gracefully
+      if (error.response?.status === 400) {
+        const errorData = error.response?.data;
+        if (errorData?.message) {
+          return { booking: null, error: errorData.message };
+        }
+        if (errorData?.error_description) {
+          return { booking: null, error: errorData.error_description };
+        }
+        return { booking: null, error: 'Invalid booking request. Please check your input and try again.' };
+      }
+      
+      return { booking: null, error: error.response?.data?.message || 'Failed to book class' };
+    }
+  },
+
+  // Join waitlist for a full class
+  async joinWaitlist(classScheduleId: string, memberId: string): Promise<{ booking: any | null; error: string | null }> {
+    try {
+      // Check if class exists
+      const scheduleResponse = await supabaseApi.get(`/class_schedules?id=eq.${classScheduleId}&select=id,max_bookings`);
+      const schedule = scheduleResponse.data[0];
+      
+      if (!schedule) {
+        return { booking: null, error: 'Class schedule not found' };
+      }
+
+      // Check if user already has a booking (confirmed or waitlist) for this class
+      const existingBooking = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}`
+      );
+      
+      if (existingBooking.data && existingBooking.data.length > 0) {
+        const existing = existingBooking.data[0];
+        if (existing.status === 'confirmed') {
+          return { booking: null, error: 'You are already booked for this class' };
+        } else if (existing.status === 'waitlist') {
+          return { booking: null, error: 'You are already on the waitlist for this class' };
+        }
+      }
+
+      // Get waitlist position (count existing waitlist bookings)
+      const waitlistResponse = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&status=eq.waitlist&select=id&order=created_at.asc`
+      );
+      const waitlistPosition = (waitlistResponse.data?.length || 0) + 1;
+
+      // Create waitlist booking
+      const bookingResponse = await supabaseApi.post('/class_bookings', {
+        class_schedule_id: classScheduleId,
+        member_id: memberId,
+        status: 'waitlist',
+      });
+
+      return { booking: { ...bookingResponse.data[0], waitlist_position: waitlistPosition }, error: null };
+    } catch (error: any) {
+      console.error('Error joining waitlist:', error.response?.data || error.message);
+      return { booking: null, error: error.response?.data?.message || 'Failed to join waitlist' };
+    }
+  },
+
+  // Leave waitlist
+  async leaveWaitlist(classScheduleId: string, memberId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      // Find the waitlist booking
+      const bookingResponse = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}&status=eq.waitlist`
+      );
+      
+      if (!bookingResponse.data || bookingResponse.data.length === 0) {
+        return { success: false, error: 'Waitlist booking not found' };
+      }
+
+      // Cancel the waitlist booking
+      await supabaseApi.patch(`/class_bookings?id=eq.${bookingResponse.data[0].id}`, {
+        status: 'cancelled',
+      });
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error leaving waitlist:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to leave waitlist' };
+    }
+  },
+
+  // Cancel a class booking
+  async cancelBooking(classScheduleId: string, memberId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      // Find the booking
+      const bookingResponse = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}&status=eq.confirmed`
+      );
+      
+      if (!bookingResponse.data || bookingResponse.data.length === 0) {
+        return { success: false, error: 'Booking not found' };
+      }
+
+      // Cancel the booking
+      await supabaseApi.patch(`/class_bookings?id=eq.${bookingResponse.data[0].id}`, {
+        status: 'cancelled',
+      });
+
+      // Update current_bookings count
+      const scheduleResponse = await supabaseApi.get(`/class_schedules?id=eq.${classScheduleId}&select=current_bookings`);
+      const schedule = scheduleResponse.data[0];
+      if (schedule && schedule.current_bookings > 0) {
+        await supabaseApi.patch(`/class_schedules?id=eq.${classScheduleId}`, {
+          current_bookings: schedule.current_bookings - 1,
+        });
+      }
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error cancelling booking:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to cancel booking' };
+    }
+  },
+
+  // Check in for a class
+  async checkIn(classScheduleId: string, memberId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      // Verify user has a confirmed booking for this class
+      const bookingResponse = await supabaseApi.get(
+        `/class_bookings?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}&status=eq.confirmed`
+      );
+      
+      if (!bookingResponse.data || bookingResponse.data.length === 0) {
+        return { success: false, error: 'You must have a confirmed booking to check in' };
+      }
+
+      // Check if already checked in
+      const attendanceResponse = await supabaseApi.get(
+        `/class_attendance?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}`
+      );
+
+      if (attendanceResponse.data && attendanceResponse.data.length > 0) {
+        const existing = attendanceResponse.data[0];
+        if (existing.attended) {
+          return { success: false, error: 'You have already checked in for this class' };
+        }
+        // Update existing record
+        await supabaseApi.patch(`/class_attendance?id=eq.${existing.id}`, {
+          attended: true,
+          checked_in_at: new Date().toISOString(),
+        });
+      } else {
+        // Create new attendance record
+        await supabaseApi.post('/class_attendance', {
+          class_schedule_id: classScheduleId,
+          member_id: memberId,
+          attended: true,
+          checked_in_at: new Date().toISOString(),
+        });
+      }
+
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error checking in:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to check in' };
+    }
+  },
+
+  // Get check-in status for a class
+  async getCheckInStatus(classScheduleId: string, memberId: string): Promise<{ checkedIn: boolean; error: string | null }> {
+    try {
+      const response = await supabaseApi.get(
+        `/class_attendance?class_schedule_id=eq.${classScheduleId}&member_id=eq.${memberId}&attended=eq.true`
+      );
+      
+      return { checkedIn: response.data && response.data.length > 0, error: null };
+    } catch (error: any) {
+      // If table doesn't exist, return false (not checked in)
+      if (error.response?.status === 404 || error.response?.data?.code === 'PGRST205') {
+        return { checkedIn: false, error: null };
+      }
+      console.error('Error getting check-in status:', error.response?.data || error.message);
+      return { checkedIn: false, error: error.response?.data?.message || 'Failed to get check-in status' };
+    }
+  },
+
+  // Get user's bookings (includes both confirmed and waitlist)
+  async getUserBookings(memberId: string): Promise<{ bookings: any[] | null; error: string | null }> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await supabaseApi.get(
+        `/class_bookings?member_id=eq.${memberId}&status=in.(confirmed,waitlist)&select=*,class_schedules!inner(id,scheduled_date,scheduled_time,status,classes(name,description,duration),profiles!trainer_id(first_name,last_name))&class_schedules.scheduled_date=gte.${today}`
+      );
+      
+      // Filter out classes that are 15 minutes past their start time
+      const now = new Date();
+      let filteredBookings = response.data || [];
+      
+      if (Array.isArray(filteredBookings)) {
+        filteredBookings = filteredBookings.filter((booking: any) => {
+          const schedule = booking.class_schedules;
+          if (!schedule || !schedule.scheduled_date || !schedule.scheduled_time) {
+            return false;
+          }
+          
+          // Combine scheduled_date and scheduled_time
+          const scheduledDateTime = new Date(`${schedule.scheduled_date}T${schedule.scheduled_time}`);
+          
+          // Calculate cutoff time: scheduled start + 15 minutes
+          const cutoffTime = new Date(scheduledDateTime);
+          cutoffTime.setMinutes(cutoffTime.getMinutes() + 15);
+          
+          // Only include if current time is before the cutoff (15 minutes after class start)
+          return now < cutoffTime;
+        });
+      }
+      
+      // Sort manually since PostgREST has issues with nested order
+      if (filteredBookings && Array.isArray(filteredBookings)) {
+        filteredBookings.sort((a: any, b: any) => {
+          const dateA = a.class_schedules?.scheduled_date || '';
+          const dateB = b.class_schedules?.scheduled_date || '';
+          if (dateA !== dateB) {
+            return dateA.localeCompare(dateB);
+          }
+          const timeA = a.class_schedules?.scheduled_time || '';
+          const timeB = b.class_schedules?.scheduled_time || '';
+          return timeA.localeCompare(timeB);
+        });
+      }
+      
+      // Get waitlist positions for waitlist bookings
+      const bookingsWithPositions = await Promise.all(
+        filteredBookings.map(async (booking: any) => {
+          if (booking.status === 'waitlist') {
+            // Get waitlist position
+            const waitlistResponse = await supabaseApi.get(
+              `/class_bookings?class_schedule_id=eq.${booking.class_schedule_id}&status=eq.waitlist&select=id&order=created_at.asc`
+            );
+            const waitlistArray = waitlistResponse.data || [];
+            const position = waitlistArray.findIndex((b: any) => b.id === booking.id) + 1;
+            return {
+              ...booking,
+              waitlist_position: position,
+              class_schedule: {
+                ...booking.class_schedules,
+                class_name: booking.class_schedules.classes?.name || 'Unknown Class',
+                trainer_name: booking.class_schedules.profiles ? `${booking.class_schedules.profiles.first_name} ${booking.class_schedules.profiles.last_name}` : 'Unknown Trainer',
+              },
+            };
+          }
+          return {
+            ...booking,
+            class_schedule: {
+              ...booking.class_schedules,
+              class_name: booking.class_schedules.classes?.name || 'Unknown Class',
+              trainer_name: booking.class_schedules.profiles ? `${booking.class_schedules.profiles.first_name} ${booking.class_schedules.profiles.last_name}` : 'Unknown Trainer',
+            },
+          };
+        })
+      );
+      
+      const bookings = bookingsWithPositions;
+      
+      return { bookings, error: null };
+    } catch (error: any) {
+      // Check if the error is because the table doesn't exist
+      if (error.response?.data?.code === 'PGRST205' || 
+          error.response?.data?.message?.includes('Could not find the table')) {
+        console.log('class_bookings table does not exist yet. Please run create-attendance-table.sql in Supabase.');
+        // Return empty array instead of error - table will be created later
+        return { bookings: [], error: null };
+      }
+      
+      console.error('Error fetching user bookings:', error.response?.data || error.message);
+      return { bookings: [], error: null }; // Return empty array instead of null to prevent errors
+    }
+  },
 };
 
 // Nutrition Services
@@ -943,6 +1728,297 @@ export const nutritionService = {
       return { error: null };
     } catch (error: any) {
       return { error: error.response?.data?.message || 'Failed to delete meal' };
+    }
+  },
+};
+
+// Macro Tracking Services
+export const macroService = {
+  // Get macro goals for user
+  async getMacroGoals(userId: string): Promise<{ goals: any[] | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.get(`/macro_goals?user_id=eq.${userId}&is_active=eq.true&order=start_date.desc&limit=1`);
+      return { goals: response.data, error: null };
+    } catch (error: any) {
+      if (error.response?.status === 404 || error.response?.data?.code === 'PGRST205') {
+        return { goals: [], error: null };
+      }
+      console.error('Error fetching macro goals:', error.response?.data || error.message);
+      return { goals: null, error: error.response?.data?.message || 'Failed to fetch macro goals' };
+    }
+  },
+
+  // Get macro entry for a specific date
+  async getMacroEntry(userId: string, date: string): Promise<{ entry: any | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.get(`/macro_entries?user_id=eq.${userId}&entry_date=eq.${date}`);
+      if (response.data && response.data.length > 0) {
+        return { entry: response.data[0], error: null };
+      }
+      return { entry: null, error: null };
+    } catch (error: any) {
+      if (error.response?.status === 404 || error.response?.data?.code === 'PGRST205') {
+        return { entry: null, error: null };
+      }
+      console.error('Error fetching macro entry:', error.response?.data || error.message);
+      return { entry: null, error: error.response?.data?.message || 'Failed to fetch macro entry' };
+    }
+  },
+
+  // Update or create macro entry
+  async updateMacroEntry(userId: string, date: string, data: {
+    calories?: number;
+    protein_g?: number;
+    carbs_g?: number;
+    fats_g?: number;
+    fiber_g?: number;
+    sugar_g?: number;
+    sodium_mg?: number;
+    activity_type?: 'cardio' | 'weight' | 'mix' | 'rest';
+  }): Promise<{ entry: any | null; error: string | null }> {
+    try {
+      // Check if entry exists
+      const existing = await this.getMacroEntry(userId, date);
+      if (existing.entry) {
+        // Update existing entry
+        const response = await supabaseApi.patch(`/macro_entries?id=eq.${existing.entry.id}`, data);
+        return { entry: response.data[0], error: null };
+      } else {
+        // Create new entry
+        const response = await supabaseApi.post('/macro_entries', {
+          user_id: userId,
+          entry_date: date,
+          ...data,
+        });
+        return { entry: response.data[0], error: null };
+      }
+    } catch (error: any) {
+      console.error('Error updating macro entry:', error.response?.data || error.message);
+      return { entry: null, error: error.response?.data?.message || 'Failed to update macro entry' };
+    }
+  },
+
+  // Save activity type for a specific date (upsert)
+  async saveActivityType(userId: string, date: string, activityType: 'cardio' | 'weight' | 'mix' | 'rest'): Promise<{ entry: any | null; error: string | null }> {
+    try {
+      // Use upsert to save or update activity type
+      const existing = await this.getMacroEntry(userId, date);
+      if (existing.entry) {
+        // Update existing entry with activity type
+        const response = await supabaseApi.patch(`/macro_entries?id=eq.${existing.entry.id}`, {
+          activity_type: activityType,
+        });
+        return { entry: response.data[0], error: null };
+      } else {
+        // Create new entry with activity type (other fields will be 0/default)
+        const response = await supabaseApi.post('/macro_entries', {
+          user_id: userId,
+          entry_date: date,
+          activity_type: activityType,
+        });
+        return { entry: response.data[0], error: null };
+      }
+    } catch (error: any) {
+      console.error('Error saving activity type:', error.response?.data || error.message);
+      return { entry: null, error: error.response?.data?.message || 'Failed to save activity type' };
+    }
+  },
+
+  // Set up macro goals from profile data (for users who have no macro goals yet)
+  async setupMacroGoals(userId: string, data: {
+    height_cm: number;
+    weight_kg: number;
+    date_of_birth: string;
+    gender: 'male' | 'female' | 'other';
+    fitness_goal: 'weight_loss' | 'maintain' | 'muscle_gain';
+  }): Promise<{ error: string | null }> {
+    try {
+      // Update profile with macro-related fields
+      const profileResult = await userService.updateUser(userId, {
+        height_cm: data.height_cm,
+        weight_kg: data.weight_kg,
+        date_of_birth: data.date_of_birth,
+        gender: data.gender,
+        fitness_goals: [data.fitness_goal],
+      });
+      if (profileResult.error) {
+        return { error: profileResult.error };
+      }
+
+      // Calculate age from date of birth
+      const birthDate = new Date(data.date_of_birth);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+
+      const macros = calculateBaseMacros(
+        data.weight_kg,
+        data.height_cm,
+        age,
+        data.gender,
+        data.fitness_goal
+      );
+
+      // Create weight entry
+      try {
+        await supabaseApi.post('/weight_entries', {
+          user_id: userId,
+          weight_kg: data.weight_kg,
+          entry_date: today.toISOString().split('T')[0],
+        });
+      } catch (weightErr: any) {
+        if (weightErr.response?.status !== 404) {
+          console.error('Error creating weight entry:', weightErr);
+          return { error: 'Failed to create weight entry' };
+        }
+      }
+
+      // Create macro goals
+      await supabaseApi.post('/macro_goals', {
+        user_id: userId,
+        calories: macros.calories,
+        protein_g: macros.protein_g,
+        carbs_g: macros.carbs_g,
+        fats_g: macros.fats_g,
+        fiber_g: macros.fiber_g,
+        is_active: true,
+        start_date: today.toISOString().split('T')[0],
+      });
+
+      return { error: null };
+    } catch (error: any) {
+      console.error('Error setting up macro goals:', error.response?.data || error.message);
+      return { error: error.response?.data?.message || 'Failed to set up macro goals' };
+    }
+  },
+
+  // Get weight entries
+  async getWeightEntries(userId: string, limit: number = 30): Promise<{ entries: any[] | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.get(`/weight_entries?user_id=eq.${userId}&order=entry_date.desc&limit=${limit}`);
+      return { entries: response.data, error: null };
+    } catch (error: any) {
+      if (error.response?.status === 404 || error.response?.data?.code === 'PGRST205') {
+        return { entries: [], error: null };
+      }
+      console.error('Error fetching weight entries:', error.response?.data || error.message);
+      return { entries: null, error: error.response?.data?.message || 'Failed to fetch weight entries' };
+    }
+  },
+
+  // Add or update weight entry
+  async addWeightEntry(userId: string, date: string, weightKg: number, notes?: string): Promise<{ entry: any | null; error: string | null }> {
+    try {
+      // Check if entry exists for this date
+      const existing = await supabaseApi.get(`/weight_entries?user_id=eq.${userId}&entry_date=eq.${date}`);
+      const isUpdate = existing.data && existing.data.length > 0;
+      
+      let response;
+      if (isUpdate) {
+        // Update existing
+        response = await supabaseApi.patch(`/weight_entries?id=eq.${existing.data[0].id}`, {
+          weight_kg: weightKg,
+          notes: notes || null,
+        });
+      } else {
+        // Create new
+        response = await supabaseApi.post('/weight_entries', {
+          user_id: userId,
+          entry_date: date,
+          weight_kg: weightKg,
+          notes: notes || null,
+        });
+      }
+
+      // If weight changed, recalculate base macros
+      if (isUpdate && existing.data[0].weight_kg !== weightKg) {
+        // Trigger macro recalculation (non-blocking)
+        this.recalculateBaseMacros(userId).catch(err => {
+          console.log('Macro recalculation triggered but failed (non-blocking):', err);
+        });
+      }
+
+      return { entry: response.data[0], error: null };
+    } catch (error: any) {
+      console.error('Error adding weight entry:', error.response?.data || error.message);
+      return { entry: null, error: error.response?.data?.message || 'Failed to add weight entry' };
+    }
+  },
+
+  // Recalculate base macros when weight changes
+  async recalculateBaseMacros(userId: string): Promise<{ error: string | null }> {
+    try {
+      // Get user profile with all needed data
+      const profileResponse = await supabaseApi.get(`/profiles?id=eq.${userId}`);
+      const user = profileResponse.data?.[0];
+      
+      if (!user) {
+        return { error: 'User profile not found' };
+      }
+
+      // Get latest weight entry
+      const weightResponse = await supabaseApi.get(`/weight_entries?user_id=eq.${userId}&order=entry_date.desc&limit=1`);
+      const latestWeight = weightResponse.data?.[0];
+      
+      if (!latestWeight || !user.height_cm || !user.date_of_birth || !user.gender || !user.fitness_goals) {
+        return { error: 'Missing required data for macro calculation' };
+      }
+
+      // Calculate age from date of birth
+      const birthDate = new Date(user.date_of_birth);
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) ? age - 1 : age;
+
+      // Get fitness goal (use first goal if array, or default to 'maintain')
+      const goal = Array.isArray(user.fitness_goals) && user.fitness_goals.length > 0
+        ? user.fitness_goals[0]
+        : 'maintain';
+
+      // Calculate new base macros
+      const newMacros = calculateBaseMacros(
+        parseFloat(latestWeight.weight_kg),
+        user.height_cm,
+        actualAge,
+        user.gender,
+        goal
+      );
+
+      // Update macro goals (upsert active goal)
+      const goalsResponse = await supabaseApi.get(`/macro_goals?user_id=eq.${userId}&is_active=eq.true&limit=1`);
+      const existingGoal = goalsResponse.data?.[0];
+
+      if (existingGoal) {
+        // Update existing active goal
+        await supabaseApi.patch(`/macro_goals?id=eq.${existingGoal.id}`, {
+          calories: newMacros.calories,
+          protein_g: newMacros.protein_g,
+          carbs_g: newMacros.carbs_g,
+          fats_g: newMacros.fats_g,
+          fiber_g: newMacros.fiber_g,
+        });
+      } else {
+        // Create new active goal
+        await supabaseApi.post('/macro_goals', {
+          user_id: userId,
+          calories: newMacros.calories,
+          protein_g: newMacros.protein_g,
+          carbs_g: newMacros.carbs_g,
+          fats_g: newMacros.fats_g,
+          fiber_g: newMacros.fiber_g,
+          is_active: true,
+          start_date: new Date().toISOString().split('T')[0],
+        });
+      }
+
+      return { error: null };
+    } catch (error: any) {
+      console.error('Error recalculating base macros:', error.response?.data || error.message);
+      return { error: error.response?.data?.message || 'Failed to recalculate macros' };
     }
   },
 };
@@ -1063,11 +2139,22 @@ export const trainerService = {
   // Get all trainers
   async getAllTrainers(): Promise<{ trainers: any[] | null; error: string | null }> {
     try {
-      const response = await supabaseApi.get('/profiles?role=eq.trainer');
+      const response = await supabaseApi.get('/profiles?role=eq.trainer&order=first_name.asc');
       return { trainers: response.data, error: null };
     } catch (error: any) {
       console.error('Error fetching trainers:', error.response?.data || error.message);
       return { trainers: null, error: 'Failed to fetch trainers' };
+    }
+  },
+
+  // Lightweight count check - only fetches ids to compare with cache
+  async getTrainerCount(): Promise<{ count: number; error: string | null }> {
+    try {
+      const response = await supabaseApi.get('/profiles?role=eq.trainer&select=id');
+      return { count: response.data?.length ?? 0, error: null };
+    } catch (error: any) {
+      console.error('Error fetching trainer count:', error.response?.data || error.message);
+      return { count: 0, error: 'Failed to fetch trainer count' };
     }
   },
 };
@@ -1110,6 +2197,29 @@ export const scheduleService = {
     } catch (error: any) {
       console.error('Error fetching scheduled classes:', error.response?.data || error.message);
       return { schedules: null, error: 'Failed to fetch scheduled classes' };
+    }
+  },
+
+  // Update a class schedule
+  async updateClassSchedule(
+    scheduleId: string,
+    updates: {
+      trainer_id?: string;
+      class_id?: string;
+      scheduled_date?: string;
+      scheduled_time?: string;
+      difficulty_level?: string;
+      location?: string;
+      max_bookings?: number;
+      status?: string;
+    }
+  ): Promise<{ success: boolean; error: string | null }> {
+    try {
+      await supabaseApi.patch(`/class_schedules?id=eq.${scheduleId}`, updates);
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error updating class schedule:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to update class schedule' };
     }
   },
 
@@ -1216,3 +2326,66 @@ export const scheduleService = {
   }
 };
 
+// Trainer Days Off Service
+export const trainerDaysOffService = {
+  // Get days off for a trainer
+  async getTrainerDaysOff(trainerId: string, startDate?: string, endDate?: string): Promise<{ daysOff: any[] | null; error: string | null }> {
+    try {
+      let url = `/trainer_days_off?trainer_id=eq.${trainerId}`;
+      if (startDate) {
+        url += `&date=gte.${startDate}`;
+      }
+      if (endDate) {
+        url += `&date=lte.${endDate}`;
+      }
+      url += `&order=date.asc`;
+      
+      const response = await supabaseApi.get(url);
+      return { daysOff: response.data || [], error: null };
+    } catch (error: any) {
+      console.error('Error fetching trainer days off:', error.response?.data || error.message);
+      return { daysOff: null, error: 'Failed to fetch trainer days off' };
+    }
+  },
+
+  // Add a day off for a trainer
+  async addTrainerDayOff(trainerId: string, date: string, type: 'day_off' | 'annual_leave' | 'sick_leave' = 'day_off', notes?: string): Promise<{ dayOff: any | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.post('/trainer_days_off', {
+        trainer_id: trainerId,
+        date,
+        type,
+        notes: notes || null,
+      });
+      return { dayOff: response.data?.[0] || response.data, error: null };
+    } catch (error: any) {
+      console.error('Error adding trainer day off:', error.response?.data || error.message);
+      if (error.response?.status === 409) {
+        return { dayOff: null, error: 'Day off already exists for this date' };
+      }
+      return { dayOff: null, error: error.response?.data?.message || 'Failed to add trainer day off' };
+    }
+  },
+
+  // Remove a day off for a trainer
+  async removeTrainerDayOff(dayOffId: string): Promise<{ success: boolean; error: string | null }> {
+    try {
+      await supabaseApi.delete(`/trainer_days_off?id=eq.${dayOffId}`);
+      return { success: true, error: null };
+    } catch (error: any) {
+      console.error('Error removing trainer day off:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || 'Failed to remove trainer day off' };
+    }
+  },
+
+  // Update a day off (e.g., change type or notes)
+  async updateTrainerDayOff(dayOffId: string, updates: { type?: string; notes?: string }): Promise<{ dayOff: any | null; error: string | null }> {
+    try {
+      const response = await supabaseApi.patch(`/trainer_days_off?id=eq.${dayOffId}`, updates);
+      return { dayOff: response.data?.[0] || response.data, error: null };
+    } catch (error: any) {
+      console.error('Error updating trainer day off:', error.response?.data || error.message);
+      return { dayOff: null, error: error.response?.data?.message || 'Failed to update trainer day off' };
+    }
+  },
+};

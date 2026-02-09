@@ -16,6 +16,7 @@ import LoginScreen from './src/screens/auth/LoginScreen';
 import PlansScreen from './src/screens/auth/PlansScreen';
 import ForgotPasswordScreen from './src/screens/auth/ForgotPasswordScreen';
 import FirstTimeSetupScreen from './src/screens/auth/FirstTimeSetupScreen';
+import WelcomeScreen from './src/screens/auth/WelcomeScreen';
 import DashboardScreen from './src/screens/main/DashboardScreen';
 import ClassesScreen from './src/screens/main/ClassesScreen';
 import NutritionScreen from './src/screens/main/NutritionScreen';
@@ -58,53 +59,62 @@ const LoadingScreen = () => {
 };
 
 // Main tab navigator
-const MainTabNavigator = ({ onSignOut }: { onSignOut: () => void }) => {
+const MainTabNavigator = ({ onSignOut, user }: { onSignOut: () => void; user: User }) => {
   const { theme } = useTheme();
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Ionicons.glyphMap;
+      screenOptions={({ route }) => {
+        const isDashboard = route.name === 'Dashboard';
+        return {
+          tabBarIcon: ({ focused, color, size }) => {
+            let iconName: keyof typeof Ionicons.glyphMap;
 
-          if (route.name === 'Dashboard') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Classes') {
-            iconName = focused ? 'calendar' : 'calendar-outline';
-          } else if (route.name === 'Nutrition') {
-            iconName = focused ? 'restaurant' : 'restaurant-outline';
-          } else if (route.name === 'Progress') {
-            iconName = focused ? 'trending-up' : 'trending-up-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
-          } else {
-            iconName = 'help-outline';
-          }
+            if (route.name === 'Dashboard') {
+              iconName = focused ? 'home' : 'home-outline';
+            } else if (route.name === 'Classes') {
+              iconName = focused ? 'calendar' : 'calendar-outline';
+            } else if (route.name === 'Nutrition') {
+              iconName = focused ? 'restaurant' : 'restaurant-outline';
+            } else if (route.name === 'Progress') {
+              iconName = focused ? 'trending-up' : 'trending-up-outline';
+            } else if (route.name === 'Profile') {
+              iconName = focused ? 'person' : 'person-outline';
+            } else {
+              iconName = 'help-outline';
+            }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.textSecondary,
-        tabBarStyle: {
-          backgroundColor: theme.colors.surface,
-          borderTopColor: theme.colors.border,
-          paddingBottom: 5,
-          paddingTop: 5,
-          height: 60,
-        },
-        headerStyle: {
-          backgroundColor: theme.colors.primary,
-        },
-        headerTintColor: 'white',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
-      })}
+            return <Ionicons name={iconName} size={size} color={color} />;
+          },
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textSecondary,
+          tabBarStyle: isDashboard ? { display: 'none' } : {
+            backgroundColor: theme.colors.surface,
+            borderTopColor: theme.colors.border,
+            paddingBottom: 5,
+            paddingTop: 5,
+            height: 60,
+          },
+          headerStyle: {
+            backgroundColor: theme.colors.primary,
+          },
+          headerTintColor: 'white',
+          headerTitleStyle: {
+            fontWeight: 'bold',
+          },
+        };
+      }}
     >
       <Tab.Screen 
         name="Dashboard" 
-        component={DashboardScreen}
-        options={{ title: 'Dashboard' }}
-      />
+        options={{ 
+          title: 'Dashboard',
+          headerShown: false,
+        }}
+      >
+        {(props) => (
+          <DashboardScreen {...props} onSignOut={onSignOut} user={user} />
+        )}
+      </Tab.Screen>
       <Tab.Screen 
         name="Classes" 
         component={ClassesScreen}
@@ -175,8 +185,10 @@ const AuthStackNavigator = ({ onLoginSuccess }: {
 };
 
 function AppContent() {
+  const { actualThemeMode } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -209,13 +221,44 @@ function AppContent() {
     }
   };
 
-  const handleLoginSuccess = (user: User) => {
+  const handleLoginSuccess = async (user: User) => {
     console.log('=== LOGIN SUCCESS CALLBACK ===');
     console.log('User received:', user);
     console.log('User email:', user.email);
     console.log('Setting user state...');
+    
+    // Verify user is authenticated by checking for stored token
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const storedToken = await AsyncStorage.getItem('supabase_session');
+      if (storedToken) {
+        console.log('User is authenticated - token found in storage');
+      } else {
+        console.log('WARNING: No authentication token found after login');
+      }
+    } catch (error) {
+      console.log('Error checking authentication token:', error);
+    }
+    
     setUser(user);
+    
+    // Don't show welcome screen immediately - let first-time setup complete first
+    // Welcome screen will be shown after profile setup is complete (in onComplete callback)
     console.log('User state should now be set');
+  };
+
+  const handleWelcomeComplete = async () => {
+    if (user) {
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.setItem(`welcome_seen_${user.id}`, 'true');
+      } catch (error) {
+        console.log('Error saving welcome screen status:', error);
+      }
+    }
+    setShowWelcome(false);
+    // User will be automatically routed to their dashboard via renderUserNavigator
+    // No need to call checkUser() as user state is already set
   };
 
   const handleSignOut = async () => {
@@ -240,6 +283,22 @@ function AppContent() {
       return <AuthStackNavigator onLoginSuccess={handleLoginSuccess} />;
     }
 
+    // Show welcome screen for first-time users (only if they've completed profile setup)
+    if (showWelcome && user.role === 'member' && user.last_name && user.last_name !== '') {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen 
+            name="Welcome" 
+            component={WelcomeScreen}
+            initialParams={{ 
+              user,
+              onComplete: handleWelcomeComplete
+            }}
+          />
+        </Stack.Navigator>
+      );
+    }
+
     // Check if member needs to complete profile setup
     if (user.role === 'member' && (!user.last_name || user.last_name === '')) {
       // Create a simple navigator for first-time setup
@@ -250,9 +309,13 @@ function AppContent() {
             component={FirstTimeSetupScreen}
             initialParams={{ 
               user,
-              onComplete: () => {
-                // Refresh user data to check if profile is complete
-                checkUser();
+              onComplete: (updatedUser?: User) => {
+                if (updatedUser) {
+                  setUser(updatedUser);
+                  setShowWelcome(true);
+                } else {
+                  checkUser().then(() => setShowWelcome(true));
+                }
               }
             }}
           />
@@ -268,13 +331,13 @@ function AppContent() {
         return <TrainerNavigator user={user} onSignOut={handleSignOut} />;
       case 'member':
       default:
-        return <MainTabNavigator onSignOut={handleSignOut} />;
+        return <MainTabNavigator onSignOut={handleSignOut} user={user} />;
     }
   };
 
   return (
     <NavigationContainer>
-      <StatusBar style="light" />
+      <StatusBar style={actualThemeMode === 'dark' ? 'light' : 'dark'} />
       {renderUserNavigator()}
     </NavigationContainer>
   );
