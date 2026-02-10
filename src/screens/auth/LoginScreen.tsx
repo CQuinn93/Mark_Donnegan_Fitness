@@ -273,7 +273,7 @@ const LoginScreen: React.FC<Props> = ({ navigation, onLoginSuccess }) => {
                   value={trainerCode}
                   onChangeText={setTrainerCode}
                   keyboardType="numeric"
-                  maxLength={6}
+                  maxLength={10}
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
